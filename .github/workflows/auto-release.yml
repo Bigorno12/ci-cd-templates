@@ -32,3 +32,18 @@ jobs:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
           generate_release_notes: true
+
+      - name: Cleanup old releases (Keep top 10)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_RELEASES=$(gh releases list --limit 100 --json tagName --jq '.[10:][].tagName')
+          
+          if [ -z "$OLD_RELEASES" ]; then
+            echo "10 or fewer releases exist. Nothing to clean up"
+          else
+            for tag in $OLD_RELEASES; do
+              echo "Deleting release and tag: $tag"
+              gh release delete "$tag" --cleanup-tag --yes
+            done
+          fi
