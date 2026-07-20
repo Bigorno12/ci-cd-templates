@@ -1,0 +1,159 @@
+name: Maven Master Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      build-egress-policy:
+        required: false
+        type: string
+        default: "audit"
+      build-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      test-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      security-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      docker-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
+      test-args:
+        required: false
+        type: string
+        default: ""
+      spring-boot-args:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    permissions:
+      contents: write
+      security-events: write
+      checks: write
+      pull-requests: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: ${{ inputs.build-allowed-endpoints }}
+
+  lint:
+    needs: build
+    uses: ./.github/workflows/lint.yml
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+
+  unit-tests:
+    needs: build
+    uses: ./.github/workflows/unit-tests.yml
+    secrets: inherit
+    permissions:
+      checks: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+
+  integration-tests:
+    needs: build
+    uses: ./.github/workflows/integration-tests.yml
+    secrets: inherit
+    permissions:
+      checks: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+      test-args: ${{ inputs.test-args }}
+
+  security:
+    needs: [unit-tests, integration-tests]
+    uses: ./.github/workflows/security.yml
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: ${{ inputs.security-allowed-endpoints }}
+
+  tag:
+    needs: security
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+    uses: ./.github/workflows/tag.yml
+    permissions:
+      contents: write
+
+  docker-publish:
+    needs: security
+    uses: ./.github/workflows/docker.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      allowed-endpoints: ${{ inputs.docker-allowed-endpoints }}
+      spring-boot-args: ${{ inputs.spring-boot-args }}
+
+  build-gate:
+    needs:
+      - build
+      - lint
+      - unit-tests
+      - integration-tests
+      - security
+      - tag
+      - docker-publish
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check pipeline result
+        env:
+          BUILD: ${{ needs.build.result }}
+          LINT: ${{ needs.lint.result }}
+          UNIT_TESTS: ${{ needs.unit-tests.result }}
+          INTEGRATION_TEST: ${{ needs.integration-tests.result }}
+          SECURITY: ${{ needs.security.result}}
+          TAG: ${{ needs.tag.result }}
+          DOCKER_PUBLISH: ${{ needs.docker-publish.result }}
+        run: |
+          RESULTS=("$BUILD" "$LINT" "$UNIT_TESTS" "$INTEGRATION_TEST" "$SECURITY" "$TAG" "$DOCKER_PUBLISH")
+
+          for result in "${RESULTS[@]}"; do
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "❌ Pipeline failed or was cancelled"
+              exit 1
+            fi
+          done
+
+          echo "✅ Pipeline passed successfully!"

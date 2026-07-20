@@ -1,0 +1,41 @@
+name: Linting Module
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+
+jobs:
+  spotless-check:
+    name: Code Formatting (Spotless & Ktlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v7.0.0
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/common@main
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Verify Code Formatting (Maven)
+        if: inputs.cache-type == 'maven'
+        run: mvn spotless:check
+
+      - name: Verify Code Formatting (Gradle)
+        if: inputs.cache-type == 'gradle'
+        run: ./gradlew spotlessCheck --no-daemon
