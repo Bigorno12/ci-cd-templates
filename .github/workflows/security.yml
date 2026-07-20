@@ -4,12 +4,12 @@ on:
   workflow_call:
     inputs:
       egress-policy:
-        description: "Harden runner policy (audit or block)"
+        description: Harden runner policy (audit or block)
         required: false
         type: string
         default: "audit"
       allowed-endpoints:
-        description: "Allowed endpoints when policy is block"
+        description: Allowed endpoints when policy is block
         required: false
         type: string
         default: ""
