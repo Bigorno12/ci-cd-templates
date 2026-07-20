@@ -78,7 +78,6 @@ jobs:
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
 
-          # 💡 Injects the dynamic spring-boot-args here
           mvn clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
             -Dspring-boot.build-image.imageName=$IMAGE_NAME \
             -Dspring-boot.build-image.publish=$PUBLISH \
@@ -106,7 +105,6 @@ jobs:
           
           IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
 
-          # 💡 Gradle equivalent for Spring Boot Buildpacks
           ./gradlew bootBuildImage ${{ inputs.spring-boot-args }} \
             --imageName=$IMAGE_NAME \
             --publishImage=$PUBLISH \
