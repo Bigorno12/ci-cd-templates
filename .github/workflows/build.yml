@@ -1,0 +1,80 @@
+name: Build Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoint:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+
+jobs:
+  build:
+    name: Build & Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      security-events: write
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2.20.0
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints:  ${{ inputs.allowed-endpoint }}
+
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reject .env file
+        run: |
+          ENV_FILES=$(git ls-files --cached -- '*.env' ':!:.env.example' | grep -v '\.env\.example$' || true)
+          if [ -n "$ENV_FILES" ]; then
+            echo "::error::Tracked .env files detected – remove them before merging:"
+            echo "$ENV_FILES"
+            exit 1
+          fi
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/common@main
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Compile and Package (Maven)
+        if: inputs.cache-type == 'maven'
+        run: mvn -B clean package -DskipTests --file pom.xml
+
+      - name: Update dependency graph
+        if: inputs.cache-type == 'maven' && github.event_name == 'push'
+        uses: advanced-security/maven-dependency-submission-action@v5
+
+      - name: Compile and Package (Gradle)
+        if: inputs.cache-type == 'gradle'
+        run: ./gradlew build -x test --no-daemon
+
+      - name: Generate and submit dependency graph
+        if: inputs.cache-type == 'gradle' && github.event_name == 'push'
+        uses: gradle/actions/dependency-submission@v6.2.0
+
+
+

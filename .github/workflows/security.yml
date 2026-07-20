@@ -1,0 +1,81 @@
+name: Security Scan Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: "Harden runner policy (audit or block)"
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: "Allowed endpoints when policy is block"
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+
+jobs:
+  codeql:
+    name: CodeQL Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2.20.0
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+
+      - uses: actions/checkout@v7.0.0
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/common@main
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+
+      - name: Compile for CodeQL (Maven)
+        if: inputs.cache-type == 'maven'
+        run: mvn clean compile -DskipTests
+
+      - name: Compile for CodeQL (Gradle)
+        if: inputs.cache-type == 'gradle'
+        run: ./gradlew classes testClasses --no-daemon
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+  gitleaks:
+    name: Gitleaks Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

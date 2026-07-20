@@ -1,0 +1,126 @@
+name: Buildpack Build and Push Module
+
+on:
+  workflow_call:
+    inputs:
+      egress-policy:
+        description: "Harden runner policy (audit or block)"
+        required: false
+        type: string
+        default: "audit"
+      allowed-endpoints:
+        description: "Allowed endpoints when policy is block"
+        required: false
+        type: string
+        default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      spring-boot-args:
+        description: "Extra arguments for the Spring Boot build command (e.g. profiles or modules)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build-and-push:
+    name: Buildpack Build and Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2.20.0
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
+
+      - uses: actions/checkout@v7.0.0
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/common@main
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Login to Github Container Registry
+        uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Build and Push (Maven)
+        if: inputs.cache-type == 'maven'
+        env:
+          REPO_NAME: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
+          
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+            PUBLISH=false
+          else
+            TAG="main-${SHORT_SHA}"
+            PUBLISH="true"
+          fi
+          
+          IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
+          
+          echo "Building image: $IMAGE_NAME"
+          echo "Publishing to GHCR: $PUBLISH"
+
+          # 💡 Injects the dynamic spring-boot-args here
+          mvn clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
+            -Dspring-boot.build-image.imageName=$IMAGE_NAME \
+            -Dspring-boot.build-image.publish=$PUBLISH \
+            -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
+            -Dspring-boot.build-image.docker.publishRegistry.username=${{ github.actor }} \
+            -Dspring-boot.build-image.docker.publishRegistry.password=${{ secrets.CR_PAT }}
+
+      - name: Build and Push (Gradle)
+        if: inputs.cache-type == 'gradle'
+        env:
+          REPO_NAME: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
+          
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+            PUBLISH="false"
+          else
+            TAG="main-${SHORT_SHA}"
+            PUBLISH="true"
+          fi
+          
+          IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
+
+          # 💡 Gradle equivalent for Spring Boot Buildpacks
+          ./gradlew bootBuildImage ${{ inputs.spring-boot-args }} \
+            --imageName=$IMAGE_NAME \
+            --publishImage=$PUBLISH \
+            -PpublishRegistryUsername=${{ github.actor }} \
+            -PpublishRegistryPassword=${{ secrets.CR_PAT }} \
+            --no-daemon
+
+      - name: Keep only the latest 3 images
+        if: github.event_name != 'pull_request'
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          image-names: ${{ github.event.repository.name }}
+          cut-off: 0s
+          timestamp-to-use: 'updated_at'
+          keep-n-most-recent: '3'
+          account: user
+          token: ${{ secrets.CR_PAT }}
