@@ -53,7 +53,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
+          password: ${{ secrets.CR_PAT || github.token }}
 
       - name: Build and Push (Maven)
         if: inputs.cache-type == 'maven'
