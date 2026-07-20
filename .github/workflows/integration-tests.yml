@@ -48,6 +48,12 @@ jobs:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
+      - name: Load Repository Secrets to Environment
+        run: |
+          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)<<EOF\n\(.value)\nEOF"' >> $GITHUB_ENV
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+
       - name: Run Integration Tests (Maven)
         if: inputs.cache-type == 'maven'
         run: mvn -B verify -Dsurefire.skip=true ${{ inputs.test-args }} --file pom.xml
