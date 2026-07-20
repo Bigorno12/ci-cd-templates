@@ -4,12 +4,12 @@ on:
   workflow_call:
     inputs:
       egress-policy:
-        description: "Harden runner policy (audit or block)"
+        description: Harden runner policy (audit or block)
         required: false
         type: string
         default: "audit"
       allowed-endpoints:
-        description: "Allowed endpoints when policy is block"
+        description: Allowed endpoints when policy is block
         required: false
         type: string
         default: ""
@@ -48,7 +48,7 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.1
         with:
           languages: java-kotlin
           build-mode: manual
@@ -62,7 +62,7 @@ jobs:
         run: ./gradlew classes testClasses --no-daemon
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.1
 
   gitleaks:
     name: Gitleaks Security Scan

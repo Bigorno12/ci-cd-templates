@@ -4,12 +4,12 @@ on:
   workflow_call:
     inputs:
       egress-policy:
-        description: "Harden runner policy (audit or block)"
+        description: Harden runner policy (audit or block)
         required: false
         type: string
         default: "audit"
       allowed-endpoints:
-        description: "Allowed endpoints when policy is block"
+        description: Allowed endpoints when policy is block
         required: false
         type: string
         default: ""
@@ -22,7 +22,7 @@ on:
         type: string
         default: "maven"
       spring-boot-args:
-        description: "Extra arguments for the Spring Boot build command (e.g. profiles or modules)"
+        description: Extra arguments for the Spring Boot build command (e.g. profiles or modules)
         required: false
         type: string
         default: ""
@@ -78,7 +78,6 @@ jobs:
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
 
-          # 💡 Injects the dynamic spring-boot-args here
           mvn clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
             -Dspring-boot.build-image.imageName=$IMAGE_NAME \
             -Dspring-boot.build-image.publish=$PUBLISH \
@@ -106,7 +105,6 @@ jobs:
           
           IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
 
-          # 💡 Gradle equivalent for Spring Boot Buildpacks
           ./gradlew bootBuildImage ${{ inputs.spring-boot-args }} \
             --imageName=$IMAGE_NAME \
             --publishImage=$PUBLISH \
