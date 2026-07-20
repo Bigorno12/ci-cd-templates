@@ -17,6 +17,29 @@ Centralized, reusable GitHub Actions CI/CD templates for Java (Maven/Gradle + Sp
 
 All workflows run behind `step-security/harden-runner` (egress policy configurable via `egress-policy`/`allowed-endpoints` inputs).
 
+## Pipeline Flow
+
+```mermaid
+flowchart TD
+    A["run-entire-pipeline / build\n(Build & Package)"] --> B[lint]
+    A --> C[unit-tests]
+    A --> D[integration-tests]
+    B --> E[codeql]
+    B --> F[gitleaks]
+    C --> E
+    C --> F
+    D --> E
+    D --> F
+    E --> G[tag pull request]
+    E --> H[docker publish]
+    F --> G
+    F --> H
+    G --> I[build-gate]
+    H --> I
+```
+
+`master-maven-pipeline.yml` orchestrates all of these via `workflow_call`; each job uses `.github/common/action.yml` for JDK/cache setup.
+
 ## Usage
 
 In a consuming repo, call the master pipeline from your own workflow:
