@@ -43,9 +43,13 @@ jobs:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
+      - name: Make Maven wrappers executable
+        if: inputs.cache-type == 'maven'
+        run: chmod +x mvnw
+
       - name: Run Unit Test (Maven)
         if: inputs.cache-type == 'maven'
-        run: mvn -B test --file pom.xml
+        run: ./mvnw -B test --file pom.xml
 
       - name: Publish Unit Tests Report (Maven)
         uses: dorny/test-reporter@v3
@@ -56,6 +60,10 @@ jobs:
           path: "**/target/*-reports/TEST-*.xml"
           reporter: java-junit
           fail-on-error: 'false'
+
+      - name: Make Gradle wrapper executable
+        if: inputs.cache-type == 'gradle'
+        run: chmod +x gradlew
 
       - name: Run Unit Test (Gradle)
         if: inputs.cache-type == 'gradle'

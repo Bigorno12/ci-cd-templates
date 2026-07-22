@@ -32,9 +32,13 @@ jobs:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
+      - name: Make Maven wrappers executable
+        if: inputs.cache-type == 'maven'
+        run: chmod +x mvnw
+
       - name: Verify Code Formatting (Maven)
         if: inputs.cache-type == 'maven'
-        run: mvn spotless:check
+        run: ./mvnw -B -ntp spotless:check
 
       - name: Verify Code Formatting (Gradle)
         if: inputs.cache-type == 'gradle'

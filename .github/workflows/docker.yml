@@ -55,6 +55,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT || github.token }}
 
+      - name: Make Maven wrappers executable
+        if: inputs.cache-type == 'maven'
+        run: chmod +x mvnw
+
       - name: Build and Push (Maven)
         if: inputs.cache-type == 'maven'
         env:
@@ -78,12 +82,16 @@ jobs:
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
 
-          mvn clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
+          ./mvnw clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
             -Dspring-boot.build-image.imageName=$IMAGE_NAME \
             -Dspring-boot.build-image.publish=$PUBLISH \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
             -Dspring-boot.build-image.docker.publishRegistry.username=${{ github.actor }} \
             -Dspring-boot.build-image.docker.publishRegistry.password=${{ secrets.CR_PAT }}
+
+      - name: Make Gradle wrapper executable
+        if: inputs.cache-type == 'gradle'
+        run: chmod +x gradlew
 
       - name: Build and Push (Gradle)
         if: inputs.cache-type == 'gradle'
@@ -112,13 +120,9 @@ jobs:
             -PpublishRegistryPassword=${{ secrets.CR_PAT }} \
             --no-daemon
 
-      - name: Keep only the latest 3 images
+      - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: snok/container-retention-policy@v3.1.0
+        uses: ./.github/workflows/ghcr-cleanup.yml
         with:
-          image-names: ${{ github.event.repository.name }}
-          cut-off: 0s
-          timestamp-to-use: 'updated_at'
-          keep-n-most-recent: '3'
-          account: user
-          token: ${{ secrets.CR_PAT }}
+          image-name: ${{ github.event.repository.name }}
+          pat-token: ${{ secrets.CR_PAT }}

@@ -60,13 +60,21 @@ jobs:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
+      - name: Make Maven wrappers executable
+        if: inputs.cache-type == 'maven'
+        run: chmod +x mvnw
+
       - name: Compile and Package (Maven)
         if: inputs.cache-type == 'maven'
-        run: mvn -B clean package -DskipTests --file pom.xml
+        run: ./mvnw -B clean package -DskipTests --file pom.xml
 
       - name: Update dependency graph
         if: inputs.cache-type == 'maven' && github.event_name == 'push'
         uses: advanced-security/maven-dependency-submission-action@v5
+
+      - name: Make Gradle wrapper executable
+        if: inputs.cache-type == 'gradle'
+        run: chmod +x gradlew
 
       - name: Compile and Package (Gradle)
         if: inputs.cache-type == 'gradle'
