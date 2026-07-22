@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@main
+        uses: ./.github/actions/java-setup@main
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
