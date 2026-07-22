@@ -44,11 +44,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ gh api "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1" >/dev/null 2>&1 ]; then
-            echo "enable=true" >> "$GITHUB_OUTPUT"
+          if gh api "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Code Scanning is not enable or unavailable for this repository; skipping CodeQL analysis"
+            echo "::notice::Code Scanning is not enabled or unavailable for this repository; skipping CodeQL analysis."
+            fi
 
       - uses: actions/checkout@v7.0.0
 
