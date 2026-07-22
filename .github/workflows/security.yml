@@ -34,7 +34,7 @@ jobs:
     steps:
 
       - name: Harden Runner
-        uses: step-security/harden-runner@v2.20.0
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
           allowed-endpoints: ${{ inputs.allowed-endpoints }}
@@ -51,16 +51,16 @@ jobs:
             echo "::notice::Code Scanning is not enabled or unavailable for this repository; skipping CodeQL analysis."
             fi
 
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/common@main
+        uses: ./.github/actions/java-setup@main
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.1
+        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
         with:
           languages: java-kotlin
           build-mode: manual
@@ -82,7 +82,7 @@ jobs:
         run: ./gradlew classes testClasses --no-daemon --console=plain
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4.37.1
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
         with:
           category: "/language:java-kotlin"
 
@@ -93,11 +93,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
