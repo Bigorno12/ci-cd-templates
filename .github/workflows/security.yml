@@ -39,6 +39,17 @@ jobs:
           egress-policy: ${{ inputs.egress-policy }}
           allowed-endpoints: ${{ inputs.allowed-endpoints }}
 
+      - name: Check code scanning availability
+        id: code-scanning
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ gh api "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1" >/dev/null 2>&1 ]; then
+            echo "enable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Code Scanning is not enable or unavailable for this repository; skipping CodeQL analysis"
+
       - uses: actions/checkout@v7.0.0
 
       - name: Setup Java Environment
@@ -53,16 +64,26 @@ jobs:
           languages: java-kotlin
           build-mode: manual
 
+      - name: Make Maven wrappers executable
+        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'maven'
+        run: chmod +x mvnw
+
       - name: Compile for CodeQL (Maven)
-        if: inputs.cache-type == 'maven'
-        run: mvn clean compile -DskipTests
+        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'maven'
+        run: ./mvnw -B -ntp clean compile -DskipTests
+
+      - name: Make Gradle wrapper executable
+        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'gradle'
+        run: chmod +x gradlew
 
       - name: Compile for CodeQL (Gradle)
-        if: inputs.cache-type == 'gradle'
-        run: ./gradlew classes testClasses --no-daemon
+        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'gradle'
+        run: ./gradlew classes testClasses --no-daemon --console=plain
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4.37.1
+        with:
+          category: "/language:java-kotlin"
 
   gitleaks:
     name: Gitleaks Security Scan
