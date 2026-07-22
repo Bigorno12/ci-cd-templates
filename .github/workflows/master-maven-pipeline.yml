@@ -205,7 +205,7 @@ jobs:
           SECURITY: ${{ needs.security.result}}
           TAG: ${{ needs.tag.result }}
           DOCKER_PUBLISH: ${{ needs.docker-publish.result }}
-          GITOPS: ${{ needs.deploy-gitops }}
+          GITOPS: ${{ needs.deploy-gitops.result }}
         run: |
           RESULTS=("$BUILD" "$LINT" "$UNIT_TESTS" "$INTEGRATION_TEST" "$SECURITY" "$TAG" "$DOCKER_PUBLISH" "$GITOPS")
 
