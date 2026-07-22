@@ -83,6 +83,16 @@ on:
         required: false
         type: string
         default: "k8s/api.yaml"
+      gitops-allowed-endpoints:
+        required: false
+        type: string
+        default: >
+          github.com:443
+          api.github.com:443
+      extra-gitops-endpoints:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -185,6 +195,9 @@ jobs:
     secrets: inherit
     with:
       manifest-path: ${{ inputs.gitops-manifest-path }}
+      allowed-endpoints: >
+        ${{ inputs.gitops-allowed-endpoints }}
+        ${{ inputs.extra-gitops-endpoints }}
 
   build-gate:
     needs:
