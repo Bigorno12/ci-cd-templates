@@ -180,6 +180,7 @@ jobs:
     uses: ./.github/workflows/deploy-gitops.yml
     permissions:
       contents: write
+    secrets: inherit
     with:
       manifest-path: ${{ inputs.gitops-manifest-path }}
 

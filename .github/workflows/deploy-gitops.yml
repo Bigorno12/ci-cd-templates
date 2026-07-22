@@ -8,6 +8,9 @@ on:
         required: false
         type: string
         default: "k8s/api.yaml"
+    secrets:
+      GITOPS_PAT:
+        required: false
 
 jobs:
   update-manifest:
@@ -22,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: '1'
+          token: '${{ secrets.GITOPS_PAT || github.token }}'
 
       - name: Update Deployment Image Tag
         continue-on-error: true
