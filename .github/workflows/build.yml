@@ -61,6 +61,7 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Make Maven wrappers executable
+        if: inputs.cache-type == 'maven'
         run: chmod +x mvnw
 
       - name: Compile and Package (Maven)
