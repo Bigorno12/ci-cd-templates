@@ -1,0 +1,53 @@
+name: GitOps Manifest Module
+
+on:
+  workflow_call:
+    inputs:
+      manifest-path:
+        description: Path to the kubernetes file to update
+        required: false
+        type: string
+        default: "k8s/api.yaml"
+
+jobs:
+  update-manifest:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: '1'
+
+      - name: Update Deployment Image Tag
+        continue-on-error: true
+        env:
+          REPO_NAME: ${{ github.repository }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
+          TAG="main-${SHORT_SHA}"
+          IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
+
+          echo "Updating Kubernetes deployment image to: ${IMAGE_NAME}"
+
+          sed -i "s|image: ghcr.io/${REPO_LC}:.*|image: ${IMAGE_NAME}|g" ${{ inputs.manifest-path }}
+
+      - name: Commit and Push Updated Manifests
+        continue-on-error: true
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ inputs.manifest-path }}
+
+          if git diff --staged --quiet; then
+            echo "No manifest changes detected."
+          else
+            git commit -m "chore(gitops): update image tag to main-$(echo ${{ github.sha }} | cut -c1-7) [skip ci]"
+            git push
+          fi
