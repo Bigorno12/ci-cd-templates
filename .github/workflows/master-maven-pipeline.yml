@@ -47,6 +47,8 @@ on:
           repo.maven.apache.org:443
           repo.spring.io:443
           repository.jboss.org:443
+          uploads.github.com:443
+          objects.githubusercontent.com:443
       extra-security-endpoints:
         required: false
         type: string
