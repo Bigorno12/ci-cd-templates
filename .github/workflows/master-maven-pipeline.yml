@@ -77,6 +77,10 @@ on:
         required: false
         type: string
         default: ""
+      gitops-manifest-path:
+        required: false
+        type: string
+        default: "k8s/api.yaml"
 
 permissions:
   contents: read
@@ -170,6 +174,15 @@ jobs:
         ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
 
+  deploy-gitops:
+    needs: docker-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-gitops.yml
+    permissions:
+      contents: write
+    with:
+      manifest-path: ${{ inputs.gitops-manifest-path }}
+
   build-gate:
     needs:
       - build
@@ -179,6 +192,7 @@ jobs:
       - security
       - tag
       - docker-publish
+      - deploy-gitops
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -191,8 +205,9 @@ jobs:
           SECURITY: ${{ needs.security.result}}
           TAG: ${{ needs.tag.result }}
           DOCKER_PUBLISH: ${{ needs.docker-publish.result }}
+          GITOPS: ${{ needs.deploy-gitops }}
         run: |
-          RESULTS=("$BUILD" "$LINT" "$UNIT_TESTS" "$INTEGRATION_TEST" "$SECURITY" "$TAG" "$DOCKER_PUBLISH")
+          RESULTS=("$BUILD" "$LINT" "$UNIT_TESTS" "$INTEGRATION_TEST" "$SECURITY" "$TAG" "$DOCKER_PUBLISH" "$GITOPS")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
