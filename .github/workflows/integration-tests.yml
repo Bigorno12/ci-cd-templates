@@ -50,7 +50,7 @@ jobs:
 
       - name: Load Repository Secrets to Environment
         run: |
-          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)<<EOF\n\(.value)\nEOF"' >> $GITHUB_ENV
+          echo "$SECRETS_JSON" | jq -r 'to_entries[] | "\(.key)<<EOF\n\(.value)\nEOF"' >> "$GITHUB_ENV"
         env:
           SECRETS_JSON: ${{ toJSON(secrets) }}
 

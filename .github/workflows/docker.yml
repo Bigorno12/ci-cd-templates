@@ -76,18 +76,18 @@ jobs:
             TAG="main-${SHORT_SHA}"
             PUBLISH="true"
           fi
-          
-          IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
-          
+
+          IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
+
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
 
           ./mvnw clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
-            -Dspring-boot.build-image.imageName=$IMAGE_NAME \
-            -Dspring-boot.build-image.publish=$PUBLISH \
+            -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
+            -Dspring-boot.build-image.publish="$PUBLISH" \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
-            -Dspring-boot.build-image.docker.publishRegistry.username=${{ github.actor }} \
-            -Dspring-boot.build-image.docker.publishRegistry.password=${{ secrets.CR_PAT }}
+            -Dspring-boot.build-image.docker.publishRegistry.username="${{ github.actor }}" \
+            -Dspring-boot.build-image.docker.publishRegistry.password="${{ secrets.CR_PAT }}"
 
       - name: Make Gradle wrapper executable
         if: inputs.cache-type == 'gradle'
@@ -105,19 +105,22 @@ jobs:
           
           if [ "$EVENT_NAME" == "pull_request" ]; then
             TAG="pr-${{ github.event.pull_request.number }}"
-            PUBLISH="false"
+            PUBLISH=false
           else
             TAG="main-${SHORT_SHA}"
             PUBLISH="true"
           fi
-          
-          IMAGE_NAME="ghcr.io/$REPO_LC:$TAG"
+
+          IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
+
+          echo "Building image: $IMAGE_NAME"
+          echo "Publishing to GHCR: $PUBLISH"
 
           ./gradlew bootBuildImage ${{ inputs.spring-boot-args }} \
-            --imageName=$IMAGE_NAME \
-            --publishImage=$PUBLISH \
-            -PpublishRegistryUsername=${{ github.actor }} \
-            -PpublishRegistryPassword=${{ secrets.CR_PAT }} \
+            --imageName="$IMAGE_NAME" \
+            --publishImage="$PUBLISH" \
+            -PpublishRegistryUsername="${{ github.actor }}" \
+            -PpublishRegistryPassword="${{ secrets.CR_PAT }}" \
             --no-daemon
 
       - name: GHCR Cleanup (With Auto-retry)
