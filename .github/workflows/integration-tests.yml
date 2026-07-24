@@ -76,7 +76,11 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run Integration Tests (Maven)
-        run: ./mvnw -B verify -Dsurefire.skip=true ${{ inputs.test-args }} --file pom.xml
+        env:
+          TEST_ARGS: ${{ inputs.test-args }}
+        run: |
+          # shellcheck disable=SC2086
+          ./mvnw -B verify -Dsurefire.skip=true $TEST_ARGS --file pom.xml
 
       - name: Publish Integration Tests Report (Maven)
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2

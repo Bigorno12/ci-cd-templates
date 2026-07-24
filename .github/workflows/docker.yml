@@ -68,6 +68,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REGISTRY_ACTOR: ${{ github.actor }}
           REGISTRY_PASSWORD: ${{ secrets.CR_PAT || github.token }}
+          SPRING_BOOT_ARGS: ${{ inputs.spring-boot-args }}
         run: |
           REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
@@ -85,7 +86,8 @@ jobs:
           echo "Building image: $IMAGE_NAME"
           echo "Publishing to GHCR: $PUBLISH"
 
-          ./mvnw clean package spring-boot:build-image ${{ inputs.spring-boot-args }} \
+          # shellcheck disable=SC2086
+          ./mvnw clean package spring-boot:build-image $SPRING_BOOT_ARGS \
             -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
             -Dspring-boot.build-image.publish="$PUBLISH" \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
