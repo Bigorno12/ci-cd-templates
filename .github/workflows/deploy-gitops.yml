@@ -42,6 +42,7 @@ jobs:
         env:
           REPO_NAME: ${{ github.repository }}
           SHORT_SHA: ${{ github.sha }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
         run: |
           REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
@@ -50,17 +51,21 @@ jobs:
 
           echo "Updating Kubernetes deployment image to: ${IMAGE_NAME}"
 
-          sed -i "s|image: ghcr.io/${REPO_LC}:.*|image: ${IMAGE_NAME}|g" ${{ inputs.manifest-path }}
+          sed -i "s|image: ghcr.io/${REPO_LC}:.*|image: ${IMAGE_NAME}|g" "$MANIFEST_PATH"
 
       - name: Commit and Push Updated Manifests
+        env:
+          SHORT_SHA: ${{ github.sha }}
+          MANIFEST_PATH: ${{ inputs.manifest-path }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add ${{ inputs.manifest-path }}
+          git add "$MANIFEST_PATH"
 
           if git diff --staged --quiet; then
             echo "No manifest changes detected."
           else
-            git commit -m "chore(gitops): update image tag to main-$(echo ${{ github.sha }} | cut -c1-7) [skip ci]"
+            SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
+            git commit -m "chore(gitops): update image tag to main-${SHORT_SHA} [skip ci]"
             git push
           fi
