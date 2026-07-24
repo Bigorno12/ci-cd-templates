@@ -9,6 +9,10 @@ inputs:
   pat-token:
     description: Personal Access Token for GHCR
     required: true
+  account:
+    description: Account type that owns the image ('user' or 'org')
+    required: false
+    default: 'user'
 
 runs:
   using: "composite"
@@ -23,7 +27,7 @@ runs:
         cut-off: 0s
         timestamp-to-use: 'updated_at'
         keep-n-most-recent: '3'
-        account: user
+        account: ${{ inputs.account }}
         token: ${{ inputs.pat-token }}
 
     - name: Wait 60s
@@ -40,5 +44,5 @@ runs:
         cut-off: 0s
         timestamp-to-use: 'updated_at'
         keep-n-most-recent: '3'
-        account: user
+        account: ${{ inputs.account }}
         token: ${{ inputs.pat-token }}

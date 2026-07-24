@@ -31,7 +31,7 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          allowed-endpoints:  ${{ inputs.allowed-endpoints }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -39,7 +39,6 @@ jobs:
           token: '${{ secrets.GITOPS_PAT || github.token }}'
 
       - name: Update Deployment Image Tag
-        continue-on-error: true
         env:
           REPO_NAME: ${{ github.repository }}
           SHORT_SHA: ${{ github.sha }}
@@ -54,7 +53,6 @@ jobs:
           sed -i "s|image: ghcr.io/${REPO_LC}:.*|image: ${IMAGE_NAME}|g" ${{ inputs.manifest-path }}
 
       - name: Commit and Push Updated Manifests
-        continue-on-error: true
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"

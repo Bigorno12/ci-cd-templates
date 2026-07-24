@@ -37,6 +37,10 @@ on:
           api.github.com:443
           repo.spring.io:443
           repository.jboss.org:443
+      extra-test-endpoints:
+        required: false
+        type: string
+        default: ""
       security-allowed-endpoints:
         required: false
         type: string
@@ -93,6 +97,13 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      extra-secrets:
+        description: >
+          Optional JSON object of secrets to expose to the integration tests
+          (see integration-tests.yml). Curate it explicitly; do not pass the
+          whole secret store.
+        required: false
 
 permissions:
   contents: read
@@ -134,11 +145,11 @@ jobs:
       egress-policy: ${{ inputs.build-egress-policy }}
       allowed-endpoints: >
         ${{ inputs.test-allowed-endpoints }}
+        ${{ inputs.extra-test-endpoints }}
 
   integration-tests:
     needs: build
     uses: ./.github/workflows/integration-tests.yml
-    secrets: inherit
     permissions:
       checks: write
     with:
@@ -147,7 +158,10 @@ jobs:
       egress-policy: ${{ inputs.build-egress-policy }}
       allowed-endpoints: >
         ${{ inputs.test-allowed-endpoints }}
+        ${{ inputs.extra-test-endpoints }}
       test-args: ${{ inputs.test-args }}
+    secrets:
+      extra-secrets: ${{ secrets.extra-secrets }}
 
   security:
     needs: [unit-tests, integration-tests]

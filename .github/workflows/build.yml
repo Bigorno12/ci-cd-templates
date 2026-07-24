@@ -38,7 +38,7 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          allowed-endpoints:  ${{ inputs.allowed-endpoints }}
+          allowed-endpoints: ${{ inputs.allowed-endpoints }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -61,28 +61,11 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Make Maven wrappers executable
-        if: inputs.cache-type == 'maven'
         run: chmod +x mvnw
 
       - name: Compile and Package (Maven)
-        if: inputs.cache-type == 'maven'
         run: ./mvnw -B clean package -DskipTests --file pom.xml
 
       - name: Update dependency graph
-        if: inputs.cache-type == 'maven' && github.event_name == 'push'
+        if: github.event_name == 'push'
         uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8
-
-      - name: Make Gradle wrapper executable
-        if: inputs.cache-type == 'gradle'
-        run: chmod +x gradlew
-
-      - name: Compile and Package (Gradle)
-        if: inputs.cache-type == 'gradle'
-        run: ./gradlew build -x test --no-daemon
-
-      - name: Generate and submit dependency graph
-        if: inputs.cache-type == 'gradle' && github.event_name == 'push'
-        uses: gradle/actions/dependency-submission@3f131e8634966bd73d06cc69884922b02e6faf92
-
-
-

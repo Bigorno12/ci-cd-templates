@@ -1,5 +1,5 @@
 name: Setup Java and Maven Environment
-description: Installs latest LTS JDK version, configures Maven caching, and sets MAVEN_OPTS"
+description: Installs the requested JDK version, configures Maven caching, and sets MAVEN_OPTS
 
 inputs:
   java-version:
@@ -7,15 +7,11 @@ inputs:
     required: false
     default: '25'
   cache-type:
-    description: The dependency manager to cache (maven, gradle, etc)
+    description: The dependency manager to cache (maven)
     required: false
     default: 'maven'
   maven-opts:
     description: JVM options for Maven
-    required: false
-    default: "-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=256m"
-  gradle-opts:
-    description: JVM options for Gradle
     required: false
     default: "-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=256m"
 
@@ -37,14 +33,6 @@ runs:
         echo "Cache hit: ${{ steps.setup-java.outputs.cache-hit}}"
 
     - name: Inject Global MAVEN_OPTS
-      if: inputs.cache-type == 'maven'
       shell: bash
       run: |
         echo "MAVEN_OPTS=${{ inputs.maven-opts }}" >> $GITHUB_ENV
-
-    - name: Inject Global GRADLE_OPTS
-      if: inputs.gradle-ots == 'gradle'
-      shell: bash
-      run: |
-        echo "GRADLE_OPTS=${{ inputs.gradle-opts }}" >> $GITHUB_ENV
-        echo "GRADLE_USER_HOME=$GITHUB_WORKSPACE/.gradle" >> $GITHUB_ENV
