@@ -49,7 +49,7 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run Unit Test (Maven)
-        run: ./mvnw -B test --file pom.xml
+        run: ./mvnw -B -T 1C test --file pom.xml
 
       - name: Publish Unit Tests Report (Maven)
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2
