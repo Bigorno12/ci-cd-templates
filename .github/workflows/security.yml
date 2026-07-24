@@ -52,6 +52,8 @@ jobs:
             fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup Java Environment
         uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@main
@@ -60,28 +62,22 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Initialize CodeQL
+        if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
         with:
           languages: java-kotlin
           build-mode: manual
 
       - name: Make Maven wrappers executable
-        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'maven'
+        if: steps.code-scanning.outputs.enabled == 'true'
         run: chmod +x mvnw
 
       - name: Compile for CodeQL (Maven)
-        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'maven'
+        if: steps.code-scanning.outputs.enabled == 'true'
         run: ./mvnw -B -ntp clean compile -DskipTests
 
-      - name: Make Gradle wrapper executable
-        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'gradle'
-        run: chmod +x gradlew
-
-      - name: Compile for CodeQL (Gradle)
-        if: steps.code-scanning.outputs.enabled == 'true' && inputs.cache-type == 'gradle'
-        run: ./gradlew classes testClasses --no-daemon --console=plain
-
       - name: Perform CodeQL Analysis
+        if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
         with:
           category: "/language:java-kotlin"
@@ -96,6 +92,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e

@@ -41,6 +41,8 @@ jobs:
           allowed-endpoints: ${{ inputs.allowed-endpoints }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup Java Environment
         uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@main
@@ -49,28 +51,29 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Login to Github Container Registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.CR_PAT || github.token }}
 
       - name: Make Maven wrappers executable
-        if: inputs.cache-type == 'maven'
         run: chmod +x mvnw
 
       - name: Build and Push (Maven)
-        if: inputs.cache-type == 'maven'
         env:
           REPO_NAME: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           SHORT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.CR_PAT || github.token }}
         run: |
           REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
-          
+
           if [ "$EVENT_NAME" == "pull_request" ]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
+            TAG="pr-${PR_NUMBER}"
             PUBLISH=false
           else
             TAG="main-${SHORT_SHA}"
@@ -86,46 +89,12 @@ jobs:
             -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
             -Dspring-boot.build-image.publish="$PUBLISH" \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
-            -Dspring-boot.build-image.docker.publishRegistry.username="${{ github.actor }}" \
-            -Dspring-boot.build-image.docker.publishRegistry.password="${{ secrets.CR_PAT }}"
-
-      - name: Make Gradle wrapper executable
-        if: inputs.cache-type == 'gradle'
-        run: chmod +x gradlew
-
-      - name: Build and Push (Gradle)
-        if: inputs.cache-type == 'gradle'
-        env:
-          REPO_NAME: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          SHORT_SHA: ${{ github.sha }}
-        run: |
-          REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
-          SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
-          
-          if [ "$EVENT_NAME" == "pull_request" ]; then
-            TAG="pr-${{ github.event.pull_request.number }}"
-            PUBLISH=false
-          else
-            TAG="main-${SHORT_SHA}"
-            PUBLISH="true"
-          fi
-
-          IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
-
-          echo "Building image: $IMAGE_NAME"
-          echo "Publishing to GHCR: $PUBLISH"
-
-          ./gradlew bootBuildImage ${{ inputs.spring-boot-args }} \
-            --imageName="$IMAGE_NAME" \
-            --publishImage="$PUBLISH" \
-            -PpublishRegistryUsername="${{ github.actor }}" \
-            -PpublishRegistryPassword="${{ secrets.CR_PAT }}" \
-            --no-daemon
+            -Dspring-boot.build-image.docker.publishRegistry.username="$REGISTRY_ACTOR" \
+            -Dspring-boot.build-image.docker.publishRegistry.password="$REGISTRY_PASSWORD"
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
         uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@main
         with:
           image-name: ${{ github.event.repository.name }}
-          pat-token: ${{ secrets.CR_PAT }}
+          pat-token: ${{ secrets.CR_PAT || github.token }}

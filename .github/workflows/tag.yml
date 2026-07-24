@@ -35,7 +35,7 @@ jobs:
           git push origin "$TAG"
 
           TAGS_TO_DELETE=$(git ls-remote --tags origin "refs/tags/pr-${PR_NUMBER}-run-*" | grep -v '\^{}' | sed 's/.*refs\/tags\///' | sort -V -r | tail -n +5)
-          
+
           for OLD_TAG in $TAGS_TO_DELETE; do
             echo "Deleting old tag: $OLD_TAG"
             git push origin --delete "$OLD_TAG"
