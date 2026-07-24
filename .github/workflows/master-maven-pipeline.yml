@@ -109,6 +109,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   build:
     uses: ./.github/workflows/build.yml
@@ -162,7 +166,7 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   security:
-    needs: [unit-tests, integration-tests]
+    needs: build
     uses: ./.github/workflows/security.yml
     permissions:
       security-events: write
@@ -183,7 +187,7 @@ jobs:
       contents: write
 
   docker-publish:
-    needs: security
+    needs: [unit-tests, integration-tests, security]
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/docker.yml
     secrets: inherit
