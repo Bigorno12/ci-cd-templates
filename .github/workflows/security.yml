@@ -42,7 +42,7 @@ jobs:
       - name: Check code scanning availability
         id: code-scanning
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if gh api "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?per_page=1" >/dev/null 2>&1; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
