@@ -100,7 +100,7 @@ jobs:
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
             -Dspring-boot.build-image.docker.publishRegistry.username="$REGISTRY_ACTOR" \
             -Dspring-boot.build-image.docker.publishRegistry.password="$REGISTRY_PASSWORD"
-          
+
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
 
