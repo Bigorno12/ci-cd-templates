@@ -116,6 +116,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Cache Trivy vulnerability DB
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ${{ github.workspace }}/.cache/trivy
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-
+
       - name: Trivy dependency scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         env:
@@ -128,3 +136,4 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: table
+          cache-dir: ${{ github.workspace }}/.cache/trivy
