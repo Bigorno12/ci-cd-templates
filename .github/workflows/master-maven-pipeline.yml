@@ -12,6 +12,19 @@ on:
         type: string
         default: "maven"
       build-egress-policy:
+        description: >
+          Harden-runner policy for the build + verify (test/security) phases.
+          Defaults to "block"; the allowlists below must cover every host these
+          phases reach. Watch the first run and add any denied host (visible in
+          the harden-runner run summary) before relying on it.
+        required: false
+        type: string
+        default: "block"
+      release-egress-policy:
+        description: >
+          Harden-runner policy for the release phase (docker publish + gitops).
+          Kept at "audit" by default because buildpack image builds reach a
+          broad, less predictable set of registries.
         required: false
         type: string
         default: "audit"
@@ -21,9 +34,13 @@ on:
         default: >
           github.com:443
           repo.maven.apache.org:443
+          repo1.maven.org:443
           api.github.com:443
           repo.spring.io:443
           repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       extra-build-endpoints:
         required: false
         type: string
@@ -34,9 +51,13 @@ on:
         default: >
           github.com:443
           repo.maven.apache.org:443
+          repo1.maven.org:443
           api.github.com:443
           repo.spring.io:443
           repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
       extra-test-endpoints:
         required: false
         type: string
@@ -58,8 +79,8 @@ on:
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
           check.trivy.dev:443
-          get.anchore.io:433
-          timestamp.sigstore.dev:433
+          get.anchore.io:443
+          timestamp.sigstore.dev:443
       extra-security-endpoints:
         required: false
         type: string
@@ -155,7 +176,6 @@ jobs:
         ${{ inputs.extra-build-endpoints }}
 
   verify:
-    needs: build
     uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
@@ -177,7 +197,7 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   release:
-    needs: verify
+    needs: [build, verify]
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -189,7 +209,7 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
+      egress-policy: ${{ inputs.release-egress-policy }}
       docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
