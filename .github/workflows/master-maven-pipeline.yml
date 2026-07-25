@@ -78,6 +78,7 @@ on:
           fulcio.sigstore.dev:443
           rekor.sigstore.dev:443
           tuf-repo-cdn.sigstore.dev:443
+          mirror.gcr.io:443
       extra-docker-endpoints:
         required: false
         type: string
