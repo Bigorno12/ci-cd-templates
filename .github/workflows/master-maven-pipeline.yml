@@ -58,6 +58,8 @@ on:
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
           check.trivy.dev:443
+          get.anchore.io:433
+          timestamp.sigstore.dev:433
       extra-security-endpoints:
         required: false
         type: string
