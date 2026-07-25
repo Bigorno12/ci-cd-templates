@@ -116,6 +116,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve Trivy DB cache date
+        id: trivy-date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy vulnerability DB
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
