@@ -57,6 +57,7 @@ on:
           objects.githubusercontent.com:443
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
+          check.trivy.dev:443
       extra-security-endpoints:
         required: false
         type: string
