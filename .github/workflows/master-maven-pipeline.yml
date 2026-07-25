@@ -228,6 +228,11 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
