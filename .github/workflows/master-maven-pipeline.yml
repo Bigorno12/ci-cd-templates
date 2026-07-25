@@ -124,6 +124,11 @@ on:
           (see integration-tests.yml). Curate it explicitly; do not pass the
           whole secret store.
         required: false
+      GITOPS_PAT:
+        description: >
+          Optional PAT for pushing the updated manifest to the GitOps repo.
+          Falls back to the job's GITHUB_TOKEN when not provided.
+        required: false
 
 permissions:
   contents: read
@@ -149,46 +154,11 @@ jobs:
         ${{ inputs.build-allowed-endpoints }}
         ${{ inputs.extra-build-endpoints }}
 
-  lint:
+  verify:
     needs: build
-    uses: ./.github/workflows/lint.yml
-    with:
-      java-version: ${{ inputs.java-version }}
-      cache-type: ${{ inputs.cache-type }}
-
-  unit-tests:
-    needs: build
-    uses: ./.github/workflows/unit-tests.yml
+    uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
-    with:
-      java-version: ${{ inputs.java-version }}
-      cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
-      allowed-endpoints: >
-        ${{ inputs.test-allowed-endpoints }}
-        ${{ inputs.extra-test-endpoints }}
-
-  integration-tests:
-    needs: build
-    uses: ./.github/workflows/integration-tests.yml
-    permissions:
-      checks: write
-    with:
-      java-version: ${{ inputs.java-version }}
-      cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
-      allowed-endpoints: >
-        ${{ inputs.test-allowed-endpoints }}
-        ${{ inputs.extra-test-endpoints }}
-      test-args: ${{ inputs.test-args }}
-    secrets:
-      extra-secrets: ${{ secrets.extra-secrets }}
-
-  security:
-    needs: build
-    uses: ./.github/workflows/security.yml
-    permissions:
       security-events: write
       actions: read
       contents: read
@@ -196,73 +166,54 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.build-egress-policy }}
-      allowed-endpoints: >
+      test-allowed-endpoints: >
+        ${{ inputs.test-allowed-endpoints }}
+        ${{ inputs.extra-test-endpoints }}
+      security-allowed-endpoints: >
         ${{ inputs.security-allowed-endpoints }}
         ${{ inputs.extra-security-endpoints }}
-  tag:
-    needs: security
-    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
-    uses: ./.github/workflows/tag.yml
+      test-args: ${{ inputs.test-args }}
+    secrets:
+      extra-secrets: ${{ secrets.extra-secrets }}
+
+  release:
+    needs: verify
+    uses: ./.github/workflows/release.yml
     permissions:
       contents: write
-
-  docker-publish:
-    needs: [unit-tests, integration-tests, security]
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    uses: ./.github/workflows/docker.yml
-    secrets:
-      CR_PAT: ${{ secrets.CR_PAT }}
-    permissions:
-      contents: read
       packages: write
       id-token: write
+    secrets:
+      CR_PAT: ${{ secrets.CR_PAT }}
+      GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.build-egress-policy }}
-      allowed-endpoints: >
+      docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
-
-  deploy-gitops:
-    needs: docker-publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/deploy-gitops.yml
-    permissions:
-      contents: write
-    secrets: inherit
-    with:
-      manifest-path: ${{ inputs.gitops-manifest-path }}
-      allowed-endpoints: >
+      gitops-manifest-path: ${{ inputs.gitops-manifest-path }}
+      gitops-allowed-endpoints: >
         ${{ inputs.gitops-allowed-endpoints }}
         ${{ inputs.extra-gitops-endpoints }}
 
   build-gate:
     needs:
       - build
-      - lint
-      - unit-tests
-      - integration-tests
-      - security
-      - tag
-      - docker-publish
-      - deploy-gitops
+      - verify
+      - release
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
-          LINT: ${{ needs.lint.result }}
-          UNIT_TESTS: ${{ needs.unit-tests.result }}
-          INTEGRATION_TEST: ${{ needs.integration-tests.result }}
-          SECURITY: ${{ needs.security.result}}
-          TAG: ${{ needs.tag.result }}
-          DOCKER_PUBLISH: ${{ needs.docker-publish.result }}
-          GITOPS: ${{ needs.deploy-gitops.result }}
+          VERIFY: ${{ needs.verify.result }}
+          RELEASE: ${{ needs.release.result }}
         run: |
-          RESULTS=("$BUILD" "$LINT" "$UNIT_TESTS" "$INTEGRATION_TEST" "$SECURITY" "$TAG" "$DOCKER_PUBLISH" "$GITOPS")
+          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then

@@ -23,8 +23,18 @@ on:
         required: false
         type: string
         default: ""
+      gitops-manifest-path:
+        required: false
+        type: string
+        default: "k8s/api.yaml"
+      gitops-allowed-endpoints:
+        required: false
+        type: string
+        default: ""
     secrets:
       CR_PAT:
+        required: false
+      GITOPS_PAT:
         required: false
 
 jobs:
@@ -49,3 +59,15 @@ jobs:
       egress-policy: ${{ inputs.egress-policy }}
       allowed-endpoints: ${{ inputs.docker-allowed-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
+
+  deploy-gitops:
+    needs: docker-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-gitops.yml
+    permissions:
+      contents: write
+    secrets:
+      GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+    with:
+      manifest-path: ${{ inputs.gitops-manifest-path }}
+      allowed-endpoints: ${{ inputs.gitops-allowed-endpoints }}
