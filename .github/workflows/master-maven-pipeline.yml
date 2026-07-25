@@ -79,6 +79,9 @@ on:
           rekor.sigstore.dev:443
           tuf-repo-cdn.sigstore.dev:443
           mirror.gcr.io:443
+          github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
+          toolbox-data.anchore.io:443
       extra-docker-endpoints:
         required: false
         type: string
