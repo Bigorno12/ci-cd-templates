@@ -176,6 +176,7 @@ jobs:
         ${{ inputs.extra-build-endpoints }}
 
   verify:
+    needs: build
     uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
@@ -197,7 +198,7 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   release:
-    needs: [build, verify]
+    needs: verify
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -209,7 +210,7 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.release-egress-policy }}
+      egress-policy: ${{ inputs.build-egress-policy }}
       docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
