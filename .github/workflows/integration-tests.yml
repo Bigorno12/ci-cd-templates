@@ -80,7 +80,7 @@ jobs:
           TEST_ARGS: ${{ inputs.test-args }}
         run: |
           # shellcheck disable=SC2086
-          ./mvnw -B -T 1C verify -Dsurefire.skip=true $TEST_ARGS --file pom.xml
+          ./mvnw -B -ntp -T 1C verify -Dsurefire.skip=true $TEST_ARGS --file pom.xml
 
       - name: Publish Integration Tests Report (Maven)
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2

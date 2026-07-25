@@ -26,6 +26,12 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      CR_PAT:
+        description: >
+          Optional PAT for pushing to and cleaning up GHCR. Falls back to the
+          job's GITHUB_TOKEN when not provided.
+        required: false
 
 jobs:
   build-and-push:
@@ -61,6 +67,7 @@ jobs:
         run: chmod +x mvnw
 
       - name: Build and Push (Maven)
+        id: build
         env:
           REPO_NAME: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
@@ -87,12 +94,58 @@ jobs:
           echo "Publishing to GHCR: $PUBLISH"
 
           # shellcheck disable=SC2086
-          ./mvnw -B -T 1C clean package spring-boot:build-image $SPRING_BOOT_ARGS \
+          ./mvnw -B -ntp -T 1C clean package spring-boot:build-image $SPRING_BOOT_ARGS \
             -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
             -Dspring-boot.build-image.publish="$PUBLISH" \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
             -Dspring-boot.build-image.docker.publishRegistry.username="$REGISTRY_ACTOR" \
             -Dspring-boot.build-image.docker.publishRegistry.password="$REGISTRY_PASSWORD"
+          
+          echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ steps.build.outputs.image }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: ${{ steps.build.outputs.image }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cyclonedx.json
+          retention-days: 30
+
+      - name: Install Cosign
+        if: steps.build.outputs.publish == 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Sign published image (keyless)
+        if: steps.build.outputs.publish == 'true'
+        env:
+          IMAGE_NAME: ${{ steps.build.outputs.image }}
+        run: |
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME")
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve pushed image digest for signing"
+            exit 1
+          fi
+          echo "Signing $DIGEST"
+          cosign sign --yes "$DIGEST"
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
