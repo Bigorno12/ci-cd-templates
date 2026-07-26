@@ -23,11 +23,14 @@ on:
       release-egress-policy:
         description: >
           Harden-runner policy for the release phase (docker publish + gitops).
-          Kept at "audit" by default because buildpack image builds reach a
-          broad, less predictable set of registries.
+          Defaults to "block"; the docker/gitops allowlists below must cover
+          every host these phases reach. Buildpack image builds pull from a
+          broad set of registries, so watch the first runs and extend
+          extra-docker-endpoints with any denied host (visible in the
+          harden-runner run summary) before relying on it.
         required: false
         type: string
-        default: "audit"
+        default: "block"
       build-allowed-endpoints:
         required: false
         type: string
@@ -133,6 +136,16 @@ on:
         required: false
         type: string
         default: ""
+      signer-identity-regexp:
+        description: >
+          Regexp the release phase requires the image's keyless Cosign
+          signature to match before the manifest is promoted (cosign
+          --certificate-identity-regexp). Empty defaults to any workflow under
+          the current repository owner. Set this explicitly when the signing
+          reusable workflow lives in a different org than the consuming repo.
+        required: false
+        type: string
+        default: ""
     secrets:
       CR_PAT:
         description: >
@@ -210,7 +223,7 @@ jobs:
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
-      egress-policy: ${{ inputs.build-egress-policy }}
+      egress-policy: ${{ inputs.release-egress-policy }}
       docker-allowed-endpoints: >
         ${{ inputs.docker-allowed-endpoints }}
         ${{ inputs.extra-docker-endpoints }}
@@ -219,6 +232,7 @@ jobs:
       gitops-allowed-endpoints: >
         ${{ inputs.gitops-allowed-endpoints }}
         ${{ inputs.extra-gitops-endpoints }}
+      signer-identity-regexp: ${{ inputs.signer-identity-regexp }}
 
   build-gate:
     needs:
