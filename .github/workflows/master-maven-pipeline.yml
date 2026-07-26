@@ -84,6 +84,7 @@ on:
           check.trivy.dev:443
           get.anchore.io:443
           timestamp.sigstore.dev:443
+          mirror.gcr.io:443
       extra-security-endpoints:
         required: false
         type: string
@@ -110,7 +111,6 @@ on:
           raw.githubusercontent.com:443
           toolbox-data.anchore.io:443
           timestamp.sigstore.dev:443
-          mirror.gcr.io:443
       extra-docker-endpoints:
         required: false
         type: string
