@@ -26,6 +26,13 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      image-digest:
+        description: >
+          Full digest reference (name@sha256:...) of the pushed image, so
+          callers can verify the exact artifact that was signed rather than a
+          mutable tag. Empty on pull-request builds (nothing pushed or signed).
+        value: ${{ jobs.build-and-push.outputs.image-digest }}
     secrets:
       CR_PAT:
         description: >
@@ -38,6 +45,8 @@ jobs:
     name: Buildpack Build and Push
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      image-digest: ${{ steps.sign.outputs.digest }}
     steps:
 
       - name: Harden Runner
@@ -148,6 +157,7 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
       - name: Sign published image (keyless)
+        id: sign
         if: steps.build.outputs.publish == 'true'
         env:
           IMAGE_NAME: ${{ steps.build.outputs.image }}
@@ -159,6 +169,7 @@ jobs:
           fi
           echo "Signing $DIGEST"
           cosign sign --yes "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
