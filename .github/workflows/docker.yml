@@ -26,13 +26,13 @@ on:
         required: false
         type: string
         default: ""
-      outputs:
-        image-digest:
-          description: >
-            Full digest reference (name@sha256:...) of the pushed image, so callers
-            can verify the exact artifact that was signed rather than a mutable tag.
-            Empty on pull-request builds (nothing is pushed or signed).
-          value: ${{ jobs.build-and-push.outputs.image-digest }}
+    outputs:
+      image-digest:
+        description: >
+          Full digest reference (name@sha256:...) of the pushed image, so
+          callers can verify the exact artifact that was signed rather than a
+          mutable tag. Empty on pull-request builds (nothing pushed or signed).
+        value: ${{ jobs.build-and-push.outputs.image-digest }}
     secrets:
       CR_PAT:
         description: >
