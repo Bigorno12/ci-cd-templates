@@ -48,6 +48,7 @@ jobs:
     uses: ./.github/workflows/unit-tests.yml
     permissions:
       checks: write
+      contents: read
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
@@ -58,6 +59,7 @@ jobs:
     uses: ./.github/workflows/integration-tests.yml
     permissions:
       checks: write
+      contents: read
     with:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
