@@ -243,11 +243,12 @@ jobs:
       - release
     runs-on: ubuntu-latest
     if: always()
+    permissions: {}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
-          egress-policy: audit
+          egress-policy: block
 
       - name: Check pipeline result
         env:

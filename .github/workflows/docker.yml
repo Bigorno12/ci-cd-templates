@@ -45,6 +45,10 @@ jobs:
     name: Buildpack Build and Push
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     outputs:
       image-digest: ${{ steps.sign.outputs.digest }}
     steps:
@@ -170,6 +174,19 @@ jobs:
           echo "Signing $DIGEST"
           cosign sign --yes "$DIGEST"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Attest SBOM to image (keyless)
+        if: steps.build.outputs.publish == 'true'
+        env:
+          IMAGE_DIGEST: ${{ steps.sign.outputs.digest }}
+        run: |
+          # Bind the CycloneDX SBOM to the exact pushed digest as a signed,
+          # in-toto attestation so consumers can verify provenance with
+          # `cosign verify-attestation --type cyclonedx`.
+          cosign attest --yes \
+            --predicate sbom.cyclonedx.json \
+            --type cyclonedx \
+            "$IMAGE_DIGEST"
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
