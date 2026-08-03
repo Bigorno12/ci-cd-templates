@@ -15,39 +15,16 @@ on:
         required: false
         type: string
         default: "block"
-      test-allowed-endpoints:
+      extra-test-endpoints:
+        description: Extra endpoints appended to the lint/unit/integration base allowlists
         required: false
         type: string
-        default: >
-          github.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          objects.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
-      security-allowed-endpoints:
+        default: ""
+      extra-security-endpoints:
+        description: Extra endpoints appended to the security-scan base allowlist
         required: false
         type: string
-        default: >
-          api.github.com:443
-          github.com:443
-          ghcr.io:443
-          pkg-containers.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          repo.maven.apache.org:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          uploads.github.com:443
-          objects.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
-          raw.githubusercontent.com:443
-          check.trivy.dev:443
-          get.anchore.io:443
-          timestamp.sigstore.dev:443
-          mirror.gcr.io:443
+        default: ""
       test-args:
         required: false
         type: string
@@ -67,7 +44,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
-      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
 
   unit-tests:
     uses: ./.github/workflows/unit-tests.yml
@@ -78,7 +55,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
-      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
 
   integration-tests:
     uses: ./.github/workflows/integration-tests.yml
@@ -89,7 +66,7 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
-      allowed-endpoints: ${{ inputs.test-allowed-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
       test-args: ${{ inputs.test-args }}
     secrets:
       extra-secrets: ${{ secrets.extra-secrets }}
@@ -104,4 +81,4 @@ jobs:
       java-version: ${{ inputs.java-version }}
       cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
-      allowed-endpoints: ${{ inputs.security-allowed-endpoints }}
+      extra-allowed-endpoints: ${{ inputs.extra-security-endpoints }}
