@@ -85,8 +85,6 @@ jobs:
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          # verify-image only logs in to GHCR and runs keyless Cosign verify, so
-          # it carries its own focused allowlist rather than the full build set.
           allowed-endpoints: >
             ghcr.io:443
             pkg-containers.githubusercontent.com:443

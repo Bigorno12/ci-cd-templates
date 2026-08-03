@@ -95,8 +95,6 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Login to Github Container Registry
-        # PR builds never push or sign, so no registry credentials are exchanged
-        # on the pull_request path — only the push path authenticates.
         if: github.event_name != 'pull_request'
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7
         with:
