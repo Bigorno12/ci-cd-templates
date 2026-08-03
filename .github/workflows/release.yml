@@ -94,6 +94,9 @@ jobs:
             rekor.sigstore.dev:443
             tuf-repo-cdn.sigstore.dev:443
             timestamp.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            objects.githubusercontent.com:443
+            github-releases.githubusercontent.com:443
             ${{ inputs.extra-docker-endpoints }}
 
       - name: Login to Github Container Registry
