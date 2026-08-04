@@ -80,14 +80,14 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@d9b4f7e6817d735fbcdb7d0352de74eb262a03f2
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
       - name: Initialize CodeQL
         if: steps.code-scanning.outputs.enabled == 'true'
-        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
+        uses: github/codeql-action/init@18420e3271f74589575af831a523c833acda327f
         with:
           languages: java-kotlin
           build-mode: manual
@@ -102,7 +102,7 @@ jobs:
 
       - name: Perform CodeQL Analysis
         if: steps.code-scanning.outputs.enabled == 'true'
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38
+        uses: github/codeql-action/analyze@18420e3271f74589575af831a523c833acda327f
         with:
           category: "/language:java-kotlin"
 
