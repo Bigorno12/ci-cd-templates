@@ -23,9 +23,4 @@
 *.env
 .env.*
 !.env.example
-/.idea/.gitignore
-/.idea/ci-cd-templates.iml
-/.idea/misc.xml
-/.idea/modules.xml
-/.idea/vcs.xml
-/.idea/git_toolbox_prj.xml
+/.idea/
