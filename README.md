@@ -52,24 +52,20 @@ on their own via `workflow_call`.
 
 ```mermaid
 flowchart TD
-    subgraph s1["① Build — parallel with verify"]
+    subgraph s1["① Build + Verify — every job starts at t=0"]
         B["build<br/>test-compile · reject .env"]
-    end
-
-    DG["dependency-graph<br/>push events · off critical path"]
-
-    subgraph s2["② Verify — parallel"]
-        direction LR
         L["lint"]
         U["unit-tests"]
         I["integration-tests"]
         SEC["security<br/>CodeQL · Gitleaks · Trivy"]
     end
 
-    subgraph s3["③ Release"]
+    DG["dependency-graph<br/>needs build only · push events · off critical path"]
+
+    subgraph s2["② Release"]
         direction LR
         T["tag<br/>PRs to main"]
-        subgraph s3b["push to main"]
+        subgraph s2b["push to main"]
             direction TB
             D["docker-publish<br/>build · Trivy · SBOM · sign"]
             G["deploy-gitops<br/>cosign verify gate · bump k8s manifest"]
@@ -77,15 +73,13 @@ flowchart TD
         end
     end
 
-    GATE["④ build-gate<br/>fails if any job failed / cancelled"]
+    GATE["③ build-gate<br/>fails if any job failed / cancelled"]
 
-    s1 --> DG
-    s1 --> s3
-    s2 --> s3
+    B --> DG
+    s1 --> s2
     s1 -.-> GATE
     DG -.-> GATE
     s2 -.-> GATE
-    s3 -.-> GATE
 
     classDef build  fill:#1f6feb,stroke:#0b3a8f,color:#fff;
     classDef verify fill:#8957e5,stroke:#3d1f7a,color:#fff;
@@ -102,10 +96,15 @@ Solid arrows are the run order; dotted arrows feed `build-gate`, which
 depends on every phase and runs with `if: always()`. Green nodes are the
 supply-chain controls (sign → verify → promote).
 
-`build` and `verify` both start at t=0 — verify has no `needs: build`, because
-nothing in it consumes build's output (every job checks out and compiles for
-itself). `release` gates on both, so nothing publishes unless the compile gate
-and every verification job passed.
+Stage ① is a grouping, not a single workflow: `build` and `verify` are separate
+caller jobs in `master-maven-pipeline.yml`, and `verify` fans out into `lint`,
+`unit-tests`, `integration-tests` and `security`. All five start at t=0 — verify
+has no `needs: build`, because nothing in it consumes build's output (every job
+checks out and compiles for itself). `dependency-graph` is the one job with a
+narrower dependency: it needs `build` alone, and nothing needs it back, so it
+hangs off the side rather than sitting on the critical path. `release` gates on
+both `build` and `verify`, so nothing publishes unless the compile gate and
+every verification job passed.
 
 | Workflow | Purpose |
 |----------|---------|
