@@ -172,7 +172,6 @@ jobs:
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
-          DEPGRAPH: ${{ needs.dependency-graph.result }}
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
