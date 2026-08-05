@@ -43,7 +43,7 @@ jobs:
       signer-identity-regexp: "^https://github.com/Bigorno12/ci-cd-templates/"
 ```
 
-Pin `@<sha>` to a template commit that includes the `verify-image` job and the
+Pin `@<sha>` to a template commit that includes the folded verification gate and the
 `signer-identity-regexp` / `release-egress-policy` inputs — passing them against
 an older pin fails with "invalid input". Individual workflows can also be called
 on their own via `workflow_call`.
@@ -52,9 +52,11 @@ on their own via `workflow_call`.
 
 ```mermaid
 flowchart TD
-    subgraph s1["① Build"]
+    subgraph s1["① Build — parallel with verify"]
         B["build<br/>test-compile · reject .env"]
     end
+
+    DG["dependency-graph<br/>push events · off critical path"]
 
     subgraph s2["② Verify — parallel"]
         direction LR
@@ -70,17 +72,18 @@ flowchart TD
         subgraph s3b["push to main"]
             direction TB
             D["docker-publish<br/>build · Trivy · SBOM · sign"]
-            V["verify-image<br/>cosign verify gate"]
-            G["deploy-gitops<br/>bump k8s manifest"]
-            D --> V --> G
+            G["deploy-gitops<br/>cosign verify gate · bump k8s manifest"]
+            D --> G
         end
     end
 
     GATE["④ build-gate<br/>fails if any job failed / cancelled"]
 
-    s1 --> s2
+    s1 --> DG
+    s1 --> s3
     s2 --> s3
     s1 -.-> GATE
+    DG -.-> GATE
     s2 -.-> GATE
     s3 -.-> GATE
 
@@ -91,13 +94,18 @@ flowchart TD
 
     class B,DG build;
     class L,U,I,SEC,T verify;
-    class D,V,G supply;
+    class D,G supply;
     class GATE gate;
 ```
 
 Solid arrows are the run order; dotted arrows feed `build-gate`, which
 depends on every phase and runs with `if: always()`. Green nodes are the
 supply-chain controls (sign → verify → promote).
+
+`build` and `verify` both start at t=0 — verify has no `needs: build`, because
+nothing in it consumes build's output (every job checks out and compiles for
+itself). `release` gates on both, so nothing publishes unless the compile gate
+and every verification job passed.
 
 | Workflow | Purpose |
 |----------|---------|
@@ -109,15 +117,24 @@ supply-chain controls (sign → verify → promote).
 | `security.yml` | `codeql` SAST + `gitleaks` secret scan + `trivy-deps` dependency scan |
 | `tag.yml` | Tag PR builds `pr-<n>-run-<run>` (keeps 4 newest per PR) |
 | `docker.yml` | Buildpack image → GHCR (`pr-<n>` / `main-<sha>`, keeps 3 newest); Trivy scan, SBOM, keyless Cosign signature + SBOM attestation |
-| `deploy-gitops.yml` | Bump image tag in a k8s manifest on push to `main` |
+| `deploy-gitops.yml` | Verify the image's Cosign signature, then bump its tag in a k8s manifest on push to `main` |
 | `auto-release.yml` | Auto-bump semver tag + GitHub release on push to `main` (keeps 10 newest) |
 
-`tag` runs only on PRs to `main`; `verify-image` and `deploy-gitops` only on push to `main`. `build-gate` fails if any job failed or was cancelled.
+`tag` runs only on PRs to `main`; `deploy-gitops` only on push to `main`. `build-gate` fails if any job failed or was cancelled.
 
-`build.yml` splits the dependency-graph submission into its own job so the
-compile job can run at `contents: read` — only the submission step needs
-`contents: write`. It is skipped on pull requests, where the graph API is not
-writable anyway.
+`dependency-graph` is a separate workflow, not a job inside `build.yml`, for two
+reasons. It keeps `build` at `contents: read` — only the graph submission needs
+`contents: write`. And it stays **off the critical path**: a `needs:` on a
+reusable workflow waits for *every* job inside it, so a graph submission living
+in `build.yml` would make `release` wait on bookkeeping nothing downstream
+consumes. `build-gate` still reports its result, and it is skipped on pull
+requests (a skipped job is not a failure).
+
+`build` runs `test-compile` rather than `package`. Its output is discarded —
+nothing is shared downstream — so jar assembly and `spring-boot:repackage` were
+pure cost on the serial path ahead of the entire verify phase. `test-compile`
+still fails fast on both main and test sources; a genuine packaging failure now
+surfaces in `docker-publish` instead of here.
 
 `security.yml`'s `codeql` job probes the Code Scanning API first and fails
 closed: HTTP 200/404 runs the analysis, 403 (Code Scanning disabled) skips it
@@ -130,9 +147,9 @@ to `MEDIUM`, including unfixed) for visibility without failing the build.
 
 The release phase applies zero-trust controls between building and promoting an image:
 
-- **Digest pinning** — a `Resolve image reference` step turns the pushed tag into an immutable `name@sha256:...` digest, and every downstream step (Trivy, Syft, `cosign sign`, `cosign attest`, `verify-image`) operates on that digest. Nothing in the release path trusts a mutable tag, so a tag repointed between build and deploy cannot slip through. On PR builds nothing is pushed, so the local tag is scanned and no signing happens.
+- **Digest pinning** — a `Resolve image reference` step turns the pushed tag into an immutable `name@sha256:...` digest, and every downstream step (Trivy, Syft, `cosign sign`, `cosign attest`, and the deploy gate) operates on that digest. Nothing in the release path trusts a mutable tag, so a tag repointed between build and deploy cannot slip through. On PR builds nothing is pushed, so the local tag is scanned and no signing happens.
 - **Keyless signing** — every published image is signed with Cosign via GitHub OIDC (`docker.yml`), no long-lived keys.
-- **Signature verification gate** — `verify-image` runs `cosign verify` on the pushed digest before `deploy-gitops` promotes it, so an unsigned or tampered image blocks the deploy.
+- **Signature verification gate** — `deploy-gitops` runs `cosign verify` on the pushed digest as its **first steps**, before any checkout or commit. An unsigned or tampered image aborts the job with the manifest untouched. An empty digest fails closed rather than promoting an unverified artifact.
 - **SBOM + vulnerability scan** — a Syft CycloneDX SBOM and a Trivy `CRITICAL,HIGH` scan run against the built image. The SBOM is uploaded as a 30-day artifact **and** bound to the digest as a signed in-toto attestation, so consumers can verify provenance directly from the registry:
 
   ```bash
@@ -149,13 +166,13 @@ The release phase applies zero-trust controls between building and promoting an 
 `cosign sign` runs inside this reusable workflow, so the Sigstore certificate
 identity (SAN) is always the **template** repo —
 `https://github.com/Bigorno12/ci-cd-templates/...` — regardless of which repo
-calls the pipeline. The `verify-image` gate matches that identity against
+calls the pipeline. The `deploy-gitops` gate matches that identity against
 `signer-identity-regexp`.
 
 The input defaults to any workflow under the **caller's** repository owner
 (`^https://github.com/<owner>/`), which only lines up when your repo is under the
 `Bigorno12` org. If you call these templates from **any other org**, set it
-explicitly or `verify-image` fails closed:
+explicitly or the deploy gate fails closed:
 
 ```yaml
     with:
@@ -168,11 +185,10 @@ same org.
 ## Shared actions
 
 GitHub does not allow subdirectories under `.github/workflows`, so the workflow
-files are necessarily flat. Composite actions **can** nest, which is where the
-shared step sequences live.
+files are necessarily flat. Each workflow is self-contained: it declares its own
+`harden-runner` allowlist and its own checkout/JDK preamble, so a job can be read
+end-to-end without following indirection.
 
-- `.github/actions/harden` — `harden-runner` preloaded with the egress allowlist shared by the plain Maven jobs (`build`, `dependency-graph`, `lint`, `unit-tests`, `integration-tests`), plus an `extra-endpoints` input. One auditable list instead of five copies that were supposed to stay identical. `security.yml` and `docker.yml` deliberately keep their own lists — neither is a superset of this one, so folding them in would silently widen them.
-- `.github/actions/java-workspace` — checkout (never persisting credentials) + `java-setup` + executable Maven wrapper: the preamble seven jobs repeated verbatim. `tag` and `deploy-gitops` are excluded on purpose, since they push and need their credentials persisted.
 - `.github/actions/java-setup` — installs Temurin JDK, configures Maven cache, sets `MAVEN_OPTS` (rejects multi-line values so nothing extra can be injected into `GITHUB_ENV`).
 - `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry).
 - `.github/actions/cache-cleanup` — deletes Actions caches outside the retention policy: anything not on `keep-ref` (PR/feature branches) plus `keep-ref` caches older than `retention-days`. Not wired into the master pipeline; call it from your own scheduled workflow with a token that has `actions: write`.
