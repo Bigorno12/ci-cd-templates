@@ -50,6 +50,7 @@ jobs:
         with:
           fetch-depth: 1
           token: '${{ secrets.GITOPS_PAT || github.token }}'
+          persist-credentials: true
 
       - name: Update Deployment Image Tag
         env:
