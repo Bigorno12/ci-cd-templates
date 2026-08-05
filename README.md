@@ -53,11 +53,10 @@ on their own via `workflow_call`.
 ```mermaid
 flowchart TD
     subgraph s1["① Build"]
-        direction TB
         B["build<br/>compile · package · reject .env"]
-        DG["dependency-graph<br/>push events only"]
-        B --> DG
     end
+
+    DG["dependency-graph<br/>push events · off critical path"]
 
     subgraph s2["② Verify — parallel"]
         direction LR
@@ -82,8 +81,10 @@ flowchart TD
     GATE["④ build-gate<br/>fails if any job failed / cancelled"]
 
     s1 --> s2
+    s1 --> DG
     s2 --> s3
     s1 -.-> GATE
+    DG -.-> GATE
     s2 -.-> GATE
     s3 -.-> GATE
 
@@ -104,7 +105,8 @@ supply-chain controls (sign → verify → promote).
 
 | Workflow | Purpose |
 |----------|---------|
-| `build.yml` | `build`: compile & package, reject committed `.env`. `dependency-graph`: submit the Maven dependency graph (push events only) |
+| `build.yml` | Compile & package, reject committed `.env` |
+| `dependency-graph.yml` | Submit the Maven dependency graph (push events only) |
 | `lint.yml` | Spotless / Ktlint formatting checks |
 | `unit-tests.yml` | Unit tests + JUnit reports |
 | `integration-tests.yml` | Integration tests (curated secrets via `extra-secrets`) |
@@ -116,10 +118,14 @@ supply-chain controls (sign → verify → promote).
 
 `tag` runs only on PRs to `main`; `verify-image` and `deploy-gitops` only on push to `main`. `build-gate` fails if any job failed or was cancelled.
 
-`build.yml` splits the dependency-graph submission into its own job so the
-compile job can run at `contents: read` — only the submission step needs
-`contents: write`. It is skipped on pull requests, where the graph API is not
-writable anyway.
+`dependency-graph` is a separate workflow, not a job inside `build.yml`, for two
+reasons. It keeps `build` at `contents: read` — only the graph submission needs
+`contents: write`. More importantly it stays **off the critical path**: `verify`
+declares `needs: build`, and a `needs:` on a reusable workflow waits for *every*
+job inside it, so a graph submission living in `build.yml` would delay the whole
+verify phase for bookkeeping nothing downstream consumes. As its own job it runs
+alongside `verify` instead. `build-gate` still reports its result, and it is
+skipped on pull requests (a skipped job is not a failure).
 
 `security.yml`'s `codeql` job probes the Code Scanning API first and fails
 closed: HTTP 200/404 runs the analysis, 403 (Code Scanning disabled) skips it

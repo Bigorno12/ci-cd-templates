@@ -108,6 +108,18 @@ jobs:
   build:
     uses: ./.github/workflows/build.yml
     permissions:
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
+
+  dependency-graph:
+    needs: build
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/dependency-graph.yml
+    permissions:
       contents: write
     with:
       java-version: ${{ inputs.java-version }}
@@ -156,6 +168,7 @@ jobs:
   build-gate:
     needs:
       - build
+      - dependency-graph
       - verify
       - release
     runs-on: ubuntu-latest
@@ -172,10 +185,11 @@ jobs:
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
+          DEPGRAPH: ${{ needs.dependency-graph.result }}
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
-          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
+          RESULTS=("$BUILD" "$DEPGRAPH" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
