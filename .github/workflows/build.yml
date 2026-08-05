@@ -68,27 +68,16 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40
+        uses: Bigorno12/ci-cd-templates/.github/actions/harden@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          disable-sudo: true
-          allowed-endpoints: >
-            ${{ inputs.allowed-endpoints }}
-            ${{ inputs.extra-allowed-endpoints }}
+          extra-endpoints: ${{ inputs.extra-allowed-endpoints }}
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+      - name: Prepare Java Workspace
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-workspace@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
-
-      - name: Make Maven wrappers executable
-        run: chmod +x mvnw
 
       - name: Update dependency graph
         uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8
