@@ -1,4 +1,4 @@
-name: Unit Test Module
+name: Dependency Graph Module
 
 on:
   workflow_call:
@@ -25,13 +25,13 @@ on:
         default: "maven"
 
 jobs:
-  unit-test:
-    name: Unit Tests
+  dependency-graph:
+    name: Submit Dependency Graph
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      checks: write
+      contents: write
+
     steps:
       - name: Harden Runner
         uses: Bigorno12/ci-cd-templates/.github/actions/harden@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
@@ -45,15 +45,5 @@ jobs:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
-      - name: Run Unit Test (Maven)
-        run: ./mvnw -B -ntp -T 1C test --file pom.xml
-
-      - name: Publish Unit Tests Report (Maven)
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2
-        if: always()
-        continue-on-error: true
-        with:
-          name: Maven Unit Tests
-          path: "**/target/*-reports/TEST-*.xml"
-          reporter: java-junit
-          fail-on-error: 'false'
+      - name: Update dependency graph
+        uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8

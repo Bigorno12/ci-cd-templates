@@ -53,7 +53,7 @@ on their own via `workflow_call`.
 ```mermaid
 flowchart TD
     subgraph s1["① Build"]
-        B["build<br/>compile · package · reject .env"]
+        B["build<br/>test-compile · reject .env"]
     end
 
     DG["dependency-graph<br/>push events · off critical path"]
@@ -105,7 +105,7 @@ supply-chain controls (sign → verify → promote).
 
 | Workflow | Purpose |
 |----------|---------|
-| `build.yml` | Compile & package, reject committed `.env` |
+| `build.yml` | Fail-fast `test-compile`, reject committed `.env` |
 | `dependency-graph.yml` | Submit the Maven dependency graph (push events only) |
 | `lint.yml` | Spotless / Ktlint formatting checks |
 | `unit-tests.yml` | Unit tests + JUnit reports |
@@ -175,6 +175,12 @@ same org.
 
 ## Shared actions
 
+GitHub does not allow subdirectories under `.github/workflows`, so the workflow
+files are necessarily flat. Composite actions **can** nest, which is where the
+shared step sequences live.
+
+- `.github/actions/harden` — `harden-runner` preloaded with the egress allowlist shared by the plain Maven jobs (`build`, `dependency-graph`, `lint`, `unit-tests`, `integration-tests`), plus an `extra-endpoints` input. One auditable list instead of five copies that were supposed to stay identical. `security.yml` and `docker.yml` deliberately keep their own lists — neither is a superset of this one, so folding them in would silently widen them.
+- `.github/actions/java-workspace` — checkout (never persisting credentials) + `java-setup` + executable Maven wrapper: the preamble seven jobs repeated verbatim. `tag` and `deploy-gitops` are excluded on purpose, since they push and need their credentials persisted.
 - `.github/actions/java-setup` — installs Temurin JDK, configures Maven cache, sets `MAVEN_OPTS` (rejects multi-line values so nothing extra can be injected into `GITHUB_ENV`).
 - `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry).
 - `.github/actions/cache-cleanup` — deletes Actions caches outside the retention policy: anything not on `keep-ref` (PR/feature branches) plus `keep-ref` caches older than `retention-days`. Not wired into the master pipeline; call it from your own scheduled workflow with a token that has `actions: write`.

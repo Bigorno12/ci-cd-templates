@@ -8,22 +8,10 @@ on:
         required: false
         type: string
         default: "block"
-      allowed-endpoints:
-        description: Allowed endpoints when policy is block
-        required: false
-        type: string
-        default: >
-          github.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
-          api.github.com:443
-          repo.spring.io:443
-          repository.jboss.org:443
-          objects.githubusercontent.com:443
-          release-assets.githubusercontent.com:443
-          github-releases.githubusercontent.com:443
       extra-allowed-endpoints:
-        description: Extra endpoints appended to allowed-endpoints (base list stays intact)
+        description: >
+          Extra endpoints appended to the shared Maven allowlist owned by
+          .github/actions/harden (the base list stays intact).
         required: false
         type: string
         default: ""
@@ -38,7 +26,7 @@ on:
 
 jobs:
   build:
-    name: Build & Package
+    name: Build & Compile
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -46,18 +34,16 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        uses: Bigorno12/ci-cd-templates/.github/actions/harden@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           egress-policy: ${{ inputs.egress-policy }}
-          disable-sudo: true
-          allowed-endpoints: >
-            ${{ inputs.allowed-endpoints }}
-            ${{ inputs.extra-allowed-endpoints }}
+          extra-endpoints: ${{ inputs.extra-allowed-endpoints }}
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Prepare Java Workspace
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-workspace@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
-          fetch-depth: 1
-          persist-credentials: false
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
 
       - name: Reject .env file
         run: |
@@ -68,14 +54,30 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+      - name: Compile (Maven)
+        run: ./mvnw -B -ntp -T 1C clean test-compile --file pom.xml
+
+  dependency-graph:
+    name: Submit Dependency Graph
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Harden Runner
+        uses: Bigorno12/ci-cd-templates/.github/actions/harden@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          extra-endpoints: ${{ inputs.extra-allowed-endpoints }}
+
+      - name: Prepare Java Workspace
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-workspace@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
 
-      - name: Make Maven wrappers executable
-        run: chmod +x mvnw
-
-      - name: Compile and Package (Maven)
-        run: ./mvnw -B -ntp -T 1C clean package -DskipTests --file pom.xml
+      - name: Update dependency graph
+        uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8
