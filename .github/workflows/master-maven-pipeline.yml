@@ -47,7 +47,7 @@ on:
         type: string
         default: ""
       extra-docker-endpoints:
-        description: Extra endpoints appended to the docker-publish and verify-image allowlists
+        description: Extra endpoints appended to the docker-publish allowlist
         required: false
         type: string
         default: ""
@@ -70,7 +70,7 @@ on:
         default: ""
       signer-identity-regexp:
         description: >
-          Regexp the release phase's verify-image job requires the image's
+          Regexp the release phase's deploy-gitops job requires the image's
           keyless Cosign signature to match (cosign --certificate-identity-regexp).
           Empty defaults to a workflow file under the current repository owner.
           Pin it to the exact signing-workflow path for a tighter trust boundary,
@@ -115,8 +115,19 @@ jobs:
       egress-policy: ${{ inputs.build-egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
-  verify:
+  dependency-graph:
     needs: build
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/dependency-graph.yml
+    permissions:
+      contents: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.build-egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
+
+  verify:
     uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
@@ -134,7 +145,9 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   release:
-    needs: verify
+    needs:
+      - build
+      - verify
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
@@ -156,6 +169,7 @@ jobs:
   build-gate:
     needs:
       - build
+      - dependency-graph
       - verify
       - release
     runs-on: ubuntu-latest
@@ -172,10 +186,13 @@ jobs:
       - name: Check pipeline result
         env:
           BUILD: ${{ needs.build.result }}
+          DEPGRAPH: ${{ needs.dependency-graph.result }}
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
-          RESULTS=("$BUILD" "$VERIFY" "$RELEASE")
+          # "skipped" is not a failure: dependency-graph is push-only, and the
+          # release phase skips jobs depending on the event.
+          RESULTS=("$BUILD" "$DEPGRAPH" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do
             if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then

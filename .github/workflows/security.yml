@@ -92,8 +92,12 @@ jobs:
               ;;
           esac
 
-      - name: Prepare Java Workspace
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-workspace@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -105,9 +109,10 @@ jobs:
           languages: java-kotlin
           build-mode: manual
 
-      # No -T here on purpose: parallel Maven builds can under-trace under
-      # CodeQL's manual build mode, silently shrinking SAST coverage rather
-      # than failing. The minute it would save is not worth that.
+      - name: Make Maven wrappers executable
+        if: steps.code-scanning.outputs.enabled == 'true'
+        run: chmod +x mvnw
+
       - name: Compile for CodeQL (Maven)
         if: steps.code-scanning.outputs.enabled == 'true'
         run: ./mvnw -B -ntp clean compile -DskipTests

@@ -85,8 +85,12 @@ jobs:
             ${{ inputs.allowed-endpoints }}
             ${{ inputs.extra-allowed-endpoints }}
 
-      - name: Prepare Java Workspace
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-workspace@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -98,6 +102,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT || github.token }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
 
       - name: Build and Push (Maven)
         id: build
