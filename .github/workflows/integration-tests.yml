@@ -80,9 +80,7 @@ jobs:
           cache-type: ${{ inputs.cache-type }}
 
       - name: Load Extra Secrets to Environment
-        # False positive: Secrets are safely parsed with jq and a randomized EOF delimiter
-        # zizmor: ignore[github-env]
-        run: |
+        run: | # zizmor: ignore[github-env]
           if [ -z "$EXTRA_SECRETS" ]; then
             echo "No extra secrets provided — skipping."
             exit 0
