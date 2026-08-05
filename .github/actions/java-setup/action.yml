@@ -39,6 +39,8 @@ runs:
       shell: bash
       env:
         MAVEN_OPTS_INPUT: ${{ inputs.maven-opts }}
+      # False positive: Input is safely mapped via env and newline-validated.
+      # zizmor: ignore[github-env]
       run: |
         if printf '%s' "$MAVEN_OPTS_INPUT" | grep -q $'[\n\r]'; then
           echo "::error::maven-opts must be a single line"
