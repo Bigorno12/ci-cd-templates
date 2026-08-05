@@ -1,0 +1,37 @@
+name: Java Maven Workspace
+description: >
+  Checkout, JDK + Maven cache, and an executable Maven wrapper — the preamble
+  every Maven job repeats. Checkout never persists credentials; jobs that push
+  (tag, deploy-gitops) do their own checkout and are deliberately not covered.
+
+inputs:
+  java-version:
+    description: The JDK version to install
+    required: false
+    default: '25'
+  cache-type:
+    description: The dependency manager to cache (maven)
+    required: false
+    default: 'maven'
+  fetch-depth:
+    description: Checkout depth; 0 fetches full history (needed for history scans)
+    required: false
+    default: '1'
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+        persist-credentials: false
+
+    - name: Setup Java Environment
+      uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@378da88c539b1f8f1b0e3bdc4e1b52c5fa9854db
+      with:
+        java-version: ${{ inputs.java-version }}
+        cache-type: ${{ inputs.cache-type }}
+
+    - name: Make Maven wrapper executable
+      shell: bash
+      run: chmod +x mvnw
