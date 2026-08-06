@@ -128,6 +128,7 @@ jobs:
       extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
   verify:
+    needs: build
     uses: ./.github/workflows/verify.yml
     permissions:
       checks: write
@@ -145,9 +146,7 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   release:
-    needs:
-      - build
-      - verify
+    needs: verify
     uses: ./.github/workflows/release.yml
     permissions:
       contents: write
