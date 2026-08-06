@@ -72,11 +72,6 @@ jobs:
       extra-allowed-endpoints: ${{ inputs.extra-docker-endpoints }}
       spring-boot-args: ${{ inputs.spring-boot-args }}
 
-  # The cosign verification gate lives inside deploy-gitops as its first steps,
-  # ahead of any checkout or push. Folding it in removes a whole runner hop
-  # (acquisition + registry login + cosign install) from the release path while
-  # keeping the same gate: an unsigned or tampered digest aborts the job before
-  # the manifest is touched.
   deploy-gitops:
     needs: docker-publish
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
