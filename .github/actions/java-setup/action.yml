@@ -5,11 +5,11 @@ inputs:
   java-version:
     description: The JDK version to install
     required: false
-    default: '25'
+    default: "25"
   cache-type:
     description: The dependency manager to cache (maven)
     required: false
-    default: 'maven'
+    default: "maven"
   maven-opts:
     description: JVM options for Maven
     required: false
