@@ -33,8 +33,5 @@ rules:
   new-line-at-end-of-file: enable
   new-lines: enable
   octal-values: enable
-  quoted-strings:
-    quote-type: single
-    required: false
   trailing-spaces: enable
   truthy: disable
