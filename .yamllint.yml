@@ -27,14 +27,14 @@ rules:
   key-duplicates: enable
   key-ordering: disable
   line-length:
-    max: 120
+    max: 140
     allow-non-breakable-words: true
     allow-non-breakable-inline-mappings: true
   new-line-at-end-of-file: enable
   new-lines: enable
   octal-values: enable
   quoted-strings:
-    quote-type: single
+    quote-type: double
     required: false
   trailing-spaces: enable
   truthy: disable
