@@ -60,7 +60,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@a66cef9dd2444db62efba37cd1ac68fb93eb45bb
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@8c999a96364b5456812340815d224462a0dde693
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}

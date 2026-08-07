@@ -90,7 +90,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@a66cef9dd2444db62efba37cd1ac68fb93eb45bb
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@8c999a96364b5456812340815d224462a0dde693
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -134,7 +134,12 @@ jobs:
           echo "Publishing to GHCR: $PUBLISH"
 
           # shellcheck disable=SC2086
-          ./mvnw -B -ntp -T 1C clean package spring-boot:build-image -DskipTests $SPRING_BOOT_ARGS \
+          ./mvnw -B -ntp -T 1C package spring-boot:build-image $SPRING_BOOT_ARGS \
+            -Dmaven.test.skip=true \
+            -Denforcer.skip=true \
+            -Dspotless.check.skip=true \
+            -Djacoco.skip=true \
+            -Dcheckstyle.skip=true \
             -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
             -Dspring-boot.build-image.publish="$PUBLISH" \
             -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
@@ -239,7 +244,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@a66cef9dd2444db62efba37cd1ac68fb93eb45bb
+        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@8c999a96364b5456812340815d224462a0dde693
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}
