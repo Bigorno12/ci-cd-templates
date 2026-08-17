@@ -1,0 +1,90 @@
+@startuml sequence-release
+' Hand-maintained. Source of truth = .github/workflows/docker.yml + deploy-gitops.yml
+title Push to main — build, pin to digest, sign, verify, promote
+
+autonumber
+skinparam responseMessageBelowArrow true
+
+participant "docker.yml\nbuild-and-push" as D <<release>>
+participant "Maven + Paketo\nspring-boot:build-image" as MVN
+database "GHCR" as GHCR
+participant "Trivy" as TRIVY
+participant "Syft" as SYFT
+participant "Cosign" as COSIGN
+participant "Sigstore\nfulcio · rekor · tuf" as SIGSTORE <<external>>
+participant "deploy-gitops.yml\nupdate-manifest" as G <<release>>
+participant "k8s manifest" as MANIFEST
+participant "Argo CD" as ARGO <<consumer side>>
+
+D -> MVN : package spring-boot:build-image\n-Dspring-boot.build-image.publish=true
+note right of MVN
+  Quality plugins skipped — dedicated jobs
+  already cover them: maven.test.skip,
+  enforcer, spotless, jacoco, checkstyle.
+end note
+MVN -> GHCR : push ghcr.io/<owner>/<repo>:main-<sha7>
+
+D -> D : Resolve image reference\ndocker inspect → RepoDigests[0]
+alt digest is empty
+  D -->> D : ::error:: + exit 1
+  note right of D : Never promote what cannot be pinned.
+end
+note right of D
+  From here on **every** step uses
+  name@sha256:… — never the mutable tag.
+  A tag repointed between build and deploy
+  cannot slip through.
+end note
+
+D -> TRIVY : scan image @digest\nCRITICAL,HIGH · ignore-unfixed · exit-code 1
+note right of TRIVY
+  DB restored from a per-UTC-date cache;
+  saved only on main. Honors the consumer's
+  root .trivyignore.
+end note
+
+D -> SYFT : SBOM @digest (cyclonedx-json)
+SYFT --> D : sbom.cyclonedx.json
+D -> D : upload artifact (30 days)
+
+D -> COSIGN : cosign sign --yes @digest
+COSIGN -> SIGSTORE : OIDC (id-token: write) → cert + rekor entry
+note right of COSIGN
+  Keyless: no long-lived keys. The SAN is
+  always .../Bigorno12/ci-cd-templates/…
+  because signing runs INSIDE the template
+  repo, whoever called it.
+end note
+D -> COSIGN : cosign attest --type cyclonedx --predicate sbom @digest
+COSIGN -> SIGSTORE : in-toto attestation
+D -> GHCR : ghcr-cleanup — keep 3 most recent (retry once after 60s)
+
+D --> G : output image-digest
+
+group Verification gate — runs BEFORE any checkout or commit
+  G -> GHCR : docker login (CR_PAT || github.token)
+  G -> COSIGN : cosign verify @digest\n--certificate-identity-regexp $IDENTITY\n--certificate-oidc-issuer token.actions.githubusercontent.com
+  COSIGN -> SIGSTORE : fetch cert + verify inclusion
+  alt digest empty OR signature/identity mismatch
+    G -->> G : exit 1 — manifest untouched
+  end
+end
+note right of G
+  IDENTITY defaults to
+  ^https://github\.com/<owner>/[^/]+/\.github/workflows/
+  which only matches inside the Bigorno12 org.
+  Cross-org consumers MUST pin
+  signer-identity-regexp or the gate fails closed.
+end note
+
+G -> G : checkout (persist-credentials: true,\nGITOPS_PAT || github.token)
+G -> MANIFEST : sed image: ghcr.io/<repo>:… → :main-<sha7>
+alt manifest changed
+  G -> MANIFEST : commit "chore(gitops): update image tag … [skip ci]" + push
+else no diff
+  G -> G : "No manifest changes detected."
+end
+MANIFEST --> ARGO : auto-sync (prune + self-heal)
+
+footer docs/sequence-release.puml — Bigorno12/ci-cd-templates
+@enduml

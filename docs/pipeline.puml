@@ -1,0 +1,82 @@
+@startuml pipeline
+' Hand-maintained. Source of truth = .github/workflows/master-maven-pipeline.yml + verify.yml + release.yml
+title Reusable pipeline — three levels of workflow_call, one entry point
+
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+package "consumer repo" as CALLER #EEEEEE {
+  [.github/workflows/ci.yml] as CI <<caller>>
+}
+
+[master-maven-pipeline.yml] as M <<workflow_call>> #FFFFFF
+
+package "① build + verify — every job starts at t=0" as S1 #E8F0FE {
+  [build.yml] as B <<test-compile · reject .env>>
+  package "verify.yml — grouping only, no steps" as V #E6F4EA {
+    [lint.yml] as L
+    [unit-tests.yml] as U
+    [integration-tests.yml] as I
+    [security.yml] as SEC <<CodeQL · Gitleaks · Trivy>>
+  }
+}
+
+[dependency-graph.yml] as DG <<push events only>> #E8F0FE
+
+package "② release.yml — grouping only, no steps" as S2 #FEF7E0 {
+  [tag.yml] as T <<PRs to main>>
+  [docker.yml] as D <<buildpack · scan · SBOM · sign>>
+  [deploy-gitops.yml] as G <<verify gate · bump manifest>>
+}
+
+[build-gate] as GATE <<if: always()>> #FFF3C4
+
+CI --> M : uses: @<sha>\nsecrets: inherit
+M --> B
+M --> V
+M --> DG
+M --> S2
+
+B --> DG : needs
+B --> S2 : needs
+V --> S2 : needs
+D --> G : needs\n+ image-digest output
+
+B ..> GATE
+DG ..> GATE
+V ..> GATE
+S2 ..> GATE
+
+note right of S1
+  **verify has NO needs: build.**
+  Nothing in it consumes build's output —
+  every job checks out and compiles for
+  itself, so all five start at t=0.
+end note
+
+note right of DG
+  Its own workflow, not a job in build.yml:
+  • keeps build at contents: read
+    (only graph submission needs write)
+  • stays off the critical path — a needs:
+    on a reusable workflow waits for EVERY
+    job inside it
+end note
+
+note bottom of GATE
+  **permissions: {} — needs nothing.**
+  Fails only on failure/cancelled;
+  "skipped" is a pass (dependency-graph is
+  push-only, release jobs skip per event).
+end note
+
+note bottom of S2
+  Event gating (release.yml):
+  • tag          — PR → main, same-repo only
+  • docker-publish — push, or same-repo PR
+    (PR builds are NOT pushed or signed)
+  • deploy-gitops  — push to refs/heads/main
+end note
+
+footer docs/pipeline.puml — Bigorno12/ci-cd-templates
+@enduml
