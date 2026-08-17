@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/post-workflow-edit.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking workflow edit"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-concurrent-sessions.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking for concurrent sessions"
+          }
+        ]
+      }
+    ]
+  }
+}

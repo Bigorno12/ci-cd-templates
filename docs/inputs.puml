@@ -1,0 +1,97 @@
+@startuml inputs
+' Hand-maintained. Source of truth = the workflow_call blocks of master-maven-pipeline.yml, verify.yml, release.yml
+' and the identical input trio at the top of every leaf workflow.
+title Input, secret and permission plumbing — what an added input costs
+
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+package "consumer caller" as C #EEEEEE {
+  [with: / secrets:] as W
+  [permissions:] as P <<unset = none>>
+}
+
+package "master-maven-pipeline.yml — the public API" as M #FFFFFF {
+  [java-version · cache-type] as SHARED
+  [build-egress-policy] as BEP
+  [release-egress-policy] as REP
+  [extra-build-endpoints] as EB
+  [extra-test-endpoints] as ET
+  [extra-security-endpoints] as ES
+  [extra-docker-endpoints] as ED
+  [extra-gitops-endpoints] as EG
+  [spring-boot-args · test-args] as ARGS
+  [gitops-manifest-path] as GMP
+  [signer-identity-regexp] as SIR
+}
+
+package "grouping layer\nverify.yml / release.yml" as GRP #E6F4EA {
+  [re-declares every input] as RD
+  [narrows permissions per job] as NP
+}
+
+package "leaf workflow — the egress trio" as LEAF #E8F0FE {
+  [egress-policy] as EP <<default "block">>
+  [allowed-endpoints] as AE <<base allowlist lives HERE,\nas the input's default>>
+  [extra-allowed-endpoints] as XAE <<appended; base stays intact>>
+}
+
+W --> SHARED
+W --> BEP
+W --> REP
+P --> NP : intersects
+
+BEP --> RD
+REP --> RD
+EB --> RD
+ET --> RD
+ES --> RD
+ED --> RD
+EG --> RD
+ARGS --> RD
+GMP --> RD
+SIR --> RD
+SHARED --> RD
+
+RD --> EP
+RD --> XAE
+NP --> LEAF
+
+note right of AE
+  harden-runner receives:
+    allowed-endpoints
+    + extra-allowed-endpoints
+  A host EVERY consumer needs belongs
+  in this default. A consumer-specific
+  host belongs in their extra-* input.
+end note
+
+note bottom of M
+  **Adding an input is a 3-file edit** — leaf,
+  grouping layer, master — and it is a breaking
+  change for old pins: a consumer passing an
+  input their pinned SHA does not declare fails
+  with "invalid input".
+end note
+
+note bottom of NP
+  **permissions intersect at every level.**
+  A reusable workflow can never exceed what the
+  caller granted, and an unset permission is
+  none — a missing id-token: write silently
+  breaks keyless signing.
+  Widening a leaf ⇒ widen grouping ⇒ widen
+  master ⇒ widen the consumer's caller.
+end note
+
+note top of C
+  Optional secrets, all falling back to github.token:
+  • CR_PAT        — GHCR push + cleanup
+  • GITOPS_PAT    — manifest push
+  • extra-secrets — JSON object → env vars for
+    integration tests; github_token is filtered
+    out. Never pass toJSON(secrets).
+end note
+
+footer docs/inputs.puml — Bigorno12/ci-cd-templates
+@enduml

@@ -1,0 +1,91 @@
+@startuml egress
+' Hand-maintained. Source of truth = the allowed-endpoints default of each leaf workflow.
+' Regenerate the lists with: grep -A20 "allowed-endpoints:" .github/workflows/*.yml
+title Egress allowlists — harden-runner policy per phase (default "block")
+
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+package "core — in all four configurable phases" as CORE #FFFFFF {
+  [github.com:443]
+  [api.github.com:443]
+  [objects.githubusercontent.com:443]
+  [release-assets.githubusercontent.com:443]
+  [github-releases.githubusercontent.com:443]
+}
+
+package "build / test phase\nbuild · lint · unit · integration · dependency-graph" as P1 #E8F0FE {
+  [repo.maven.apache.org:443] as M1
+  [repo1.maven.org:443] as M2
+  [repo.spring.io:443] as M3
+  [repository.jboss.org:443] as M4
+}
+
+package "security phase\nsecurity.yml" as P2 #E6F4EA {
+  [maven: apache · spring · jboss] as S_MVN <<no repo1.maven.org>>
+  [ghcr.io + pkg-containers] as S_GHCR
+  [uploads.github.com:443] as S_UP <<SARIF upload>>
+  [raw.githubusercontent.com:443] as S_RAW
+  [check.trivy.dev · get.trivy.dev] as S_TRIVY
+  [get.anchore.io:443] as S_ANCHORE
+  [mirror.gcr.io:443] as S_GCR
+  [timestamp.sigstore.dev:443] as S_TS
+}
+
+package "docker phase\ndocker.yml" as P3 #FEF7E0 {
+  [maven: apache · repo1] as D_MVN <<no spring / jboss>>
+  [auth.docker.io · registry-1.docker.io\nproduction.cloudfront.docker.com] as D_DH <<buildpack pulls>>
+  [mirror.gcr.io:443] as D_GCR
+  [ghcr.io + pkg-containers] as D_GHCR
+  [toolbox-data.anchore.io:443] as D_ANCHORE <<Syft>>
+  [raw.githubusercontent.com:443] as D_RAW
+  [fulcio · rekor · tuf-repo-cdn · timestamp\n.sigstore.dev] as D_SIG
+}
+
+package "gitops phase\ndeploy-gitops.yml" as P4 #FCE8E6 {
+  [ghcr.io + pkg-containers] as G_GHCR
+  [fulcio · rekor · tuf-repo-cdn · timestamp\n.sigstore.dev] as G_SIG <<cosign verify>>
+}
+
+package "hardcoded — no input, always block" as P5 #EEEEEE {
+  [tag.yml] as T <<github.com · api.github.com>>
+  [auto-release.yml] as AR <<+ uploads.github.com>>
+  [workflow-lint.yml] as WL <<+ ghcr.io for zizmor>>
+  [build-gate] as BG <<block, no allowlist>>
+}
+
+CORE --> P1
+CORE --> P2
+CORE --> P3
+CORE --> P4
+
+P1 -[hidden]- P2
+P2 -[hidden]- P3
+P3 -[hidden]- P4
+
+note bottom of CORE
+  Every job: egress-policy (default "block")
+  + disable-sudo: true. The consumer appends
+  hosts via extra-*-endpoints; the base list
+  above always stays intact.
+end note
+
+note right of P3
+  Buildpack builds reach a broad set of
+  registries — this is the phase most likely
+  to need extra-docker-endpoints. Denied hosts
+  show up in the harden-runner run summary;
+  watch the first run after a change instead
+  of guessing.
+end note
+
+note right of P2
+  ⚠️ The lists are NOT symmetrical: security
+  omits repo1.maven.org, docker omits
+  repo.spring.io / repository.jboss.org.
+  Each is trimmed to what that phase observed
+  — copying a list wholesale re-widens it.
+end note
+
+footer docs/egress.puml — Bigorno12/ci-cd-templates
+@enduml

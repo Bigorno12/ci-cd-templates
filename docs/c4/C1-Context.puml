@@ -1,0 +1,43 @@
+@startuml C1-Context
+' Hand-maintained. C4 level 1 for the templates themselves — the actors and systems a
+' pipeline run touches. Source of truth = README.md "Usage" + master-maven-pipeline.yml.
+!include <C4/C4_Context>
+
+title System Context — ci-cd-templates as the shared CI trust boundary
+
+Person(dev, "Maintainer", "Edits workflows here; every consumer picks the change up on their next pin bump")
+Person(consumer, "Consumer repo owner", "Calls the pipeline with uses: @<sha> and grants its permissions")
+
+System(templates, "ci-cd-templates", "Reusable workflow_call pipeline + 3 composite actions. Holds no application code; signs on behalf of every caller.")
+
+System_Ext(callerRepo, "Consuming Java repo", "mvnw + pom.xml, Spotless, k8s manifest. e.g. Bigorno12/monolith-architecture")
+System_Ext(actions, "GitHub Actions", "Ephemeral ubuntu-latest runners, hardened by step-security/harden-runner")
+System_Ext(ghapi, "GitHub platform APIs", "Code Scanning (SARIF), Dependency Graph, Releases, Actions cache, tags")
+System_Ext(ghcr, "GHCR", "ghcr.io/<owner>/<repo> — images pinned by digest, 3 most recent kept")
+System_Ext(sigstore, "Sigstore", "fulcio · rekor · tuf — keyless certs, transparency log, timestamps")
+System_Ext(registries, "Upstream registries", "Maven Central, Spring, JBoss, Docker Hub, mirror.gcr.io, Trivy/Anchore DBs")
+System_Ext(argo, "Argo CD", "Syncs the bumped manifest from the consumer's main branch")
+
+Rel(dev, templates, "PR → actionlint + zizmor required checks", "git")
+Rel(consumer, callerRepo, "Pins @<sha>, sets signer-identity-regexp")
+Rel(callerRepo, templates, "uses: master-maven-pipeline.yml@<sha>", "workflow_call")
+Rel(templates, actions, "Runs jobs with least-privilege GITHUB_TOKEN + OIDC")
+Rel(actions, registries, "Dependency + scanner-DB downloads, through the egress allowlist", "HTTPS")
+Rel(templates, ghapi, "SARIF, dependency graph, PR tags, releases")
+Rel(templates, ghcr, "Push image, resolve digest, cleanup", "OCI")
+Rel(templates, sigstore, "cosign sign / attest / verify", "OIDC id-token")
+Rel(templates, callerRepo, "Commits the image tag into the k8s manifest", "git push")
+Rel(argo, callerRepo, "Watches manifest, prune + self-heal")
+
+Lay_D(dev, templates)
+
+note right of templates
+  The trust boundary: cosign runs HERE, so the
+  certificate identity is always this repo — never
+  the caller's. That is why deploy-gitops matches
+  signer-identity-regexp rather than trusting the
+  repo owner by default.
+end note
+
+footer docs/c4/C1-Context.puml — Bigorno12/ci-cd-templates
+@enduml

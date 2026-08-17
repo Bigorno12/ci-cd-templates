@@ -48,6 +48,20 @@ Pin `@<sha>` to a template commit that includes the folded verification gate and
 an older pin fails with "invalid input". Individual workflows can also be called
 on their own via `workflow_call`.
 
+### What your repo must provide
+
+The templates make these assumptions; a pipeline that fails immediately is usually
+one of them:
+
+- `mvnw` and `pom.xml` at the repository root (every job runs `chmod +x mvnw` first).
+- A Spotless-configured build — `lint.yml` is exactly `./mvnw spotless:check`.
+- Surefire/Failsafe reports at `**/target/*-reports/TEST-*.xml` for the JUnit annotations.
+- No tracked `*.env` files other than `.env.example` — `build.yml` fails the build on one.
+- For GitOps: a manifest at `gitops-manifest-path` containing an
+  `image: ghcr.io/<owner>/<repo>:...` line, which `deploy-gitops` rewrites with `sed`.
+- Optional: a root `.trivyignore`. `docker.yml` always passes `trivyignores: .trivyignore`
+  to the image scan, so that is where CVE suppressions belong.
+
 ## Pipeline
 
 ```mermaid
@@ -94,7 +108,9 @@ flowchart TD
 
 Solid arrows are the run order; dotted arrows feed `build-gate`, which
 depends on every phase and runs with `if: always()`. Green nodes are the
-supply-chain controls (sign → verify → promote).
+supply-chain controls (sign → verify → promote). [ARCHITECTURE.md](ARCHITECTURE.md)
+carries the same graph with per-job permissions, plus the input-plumbing, release-sequence
+and egress diagrams.
 
 Stage ① is a grouping, not a single workflow: `build` and `verify` are separate
 caller jobs in `master-maven-pipeline.yml`, and `verify` fans out into `lint`,
@@ -108,6 +124,8 @@ every verification job passed.
 
 | Workflow | Purpose |
 |----------|---------|
+| `master-maven-pipeline.yml` | The entry point consumers call; owns every input, plus `build-gate` |
+| `verify.yml` / `release.yml` | Grouping layers — no steps, only job plumbing and permission narrowing |
 | `build.yml` | Fail-fast `test-compile`, reject committed `.env` |
 | `dependency-graph.yml` | Submit the Maven dependency graph (push events only) |
 | `lint.yml` | Spotless / Ktlint formatting checks |
@@ -115,7 +133,7 @@ every verification job passed.
 | `integration-tests.yml` | Integration tests (curated secrets via `extra-secrets`) |
 | `security.yml` | `codeql` SAST + `gitleaks` secret scan + `trivy-deps` dependency scan |
 | `tag.yml` | Tag PR builds `pr-<n>-run-<run>` (keeps 4 newest per PR) |
-| `docker.yml` | Buildpack image → GHCR (`pr-<n>` / `main-<sha>`, keeps 3 newest); Trivy scan, SBOM, keyless Cosign signature + SBOM attestation |
+| `docker.yml` | Buildpack image → GHCR (`pr-<n>` / `main-<sha7>`, keeps 3 newest); Trivy scan, SBOM, keyless Cosign signature + SBOM attestation |
 | `deploy-gitops.yml` | Verify the image's Cosign signature, then bump its tag in a k8s manifest on push to `main` |
 | `auto-release.yml` | Auto-bump semver tag + GitHub release on push to `main` (keeps 10 newest) |
 
@@ -205,9 +223,10 @@ repo runs checks on its own CI code.
 | `actionlint` | Structural errors across all workflows — bad `needs:`, invalid expressions, unknown `runs-on` labels, shellcheck findings inside `run:` blocks. The binary is checksum-verified against a pinned SHA-256 before it executes. |
 | `zizmor` | Actions-specific security findings at `medium`+ — unpinned action refs, template injection via `${{ github.event.* }}`, credential persistence, over-broad `permissions`. |
 
-Neither job is path-filtered. Nearly every file in this repo lives under
-`.github/`, so a filter would save almost nothing — and a required check that is
-skipped by a path filter stays permanently pending and blocks the merge instead.
+Neither job is path-filtered, and deliberately so: a required check skipped by a
+path filter stays permanently pending and blocks the merge instead of passing.
+Everything these jobs actually lint lives under `.github/`, so the filter would
+buy little even setting that aside.
 
 Both are worth setting as required status checks on `main`; the contexts are
 `actionlint` and `zizmor`.
@@ -220,12 +239,31 @@ git config core.hooksPath .githook
 ```
 
 - `pre-commit` — `gitleaks protect --staged`, blocking the commit on a detected secret.
-- `pre-push` — skips unless the pushed commits touch YAML, then runs `actionlint` and `yamllint -d relaxed`.
+- `pre-push` — skips unless the pushed commits touch YAML, then runs `actionlint` and
+  `yamllint --strict`. It deliberately passes no `-d`: the ruleset comes from the repo's
+  [`.yamllint.yml`](.yamllint.yml) (200 columns, 2-space indent), so the hook and CI share
+  one config.
 
 Both hooks degrade to a warning when the tool is not installed
 (`brew install gitleaks actionlint yamllint`), so CI remains the enforcement
-point.
+point — and because `pre-push` is path-gated, a docs-only push runs neither linter
+and still reports success.
 
 **Dependabot** (`.github/dependabot.yml`) opens one grouped `github-actions` PR
 weekly, with a cooldown before a fresh release is proposed. Because every `uses:`
 is SHA-pinned, these PRs are how pins get advanced.
+
+**Editing a composite action is a two-commit change.** The three actions under
+`.github/actions/` are consumed by SHA-pinned *self-reference*
+(`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`), because inside a reusable
+workflow a relative action path resolves against the caller's checkout rather than this
+repo. Merge the action change first, then a second commit bumping every pin — until then
+the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 8 call sites.
+
+### Further reading
+
+| Doc | Contents |
+|-----|----------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The `uses:` call graph, input/permission plumbing, the release sequence, and per-phase egress allowlists as rendered PlantUML diagrams ([`docs/`](docs/)) |
+| [CLAUDE.md](CLAUDE.md) | Maintainer guide: house rules for workflow edits, the consumer contract, and where each value is allowed to live |
+| [`.claude/rules/workflow-rule.md`](.claude/rules/workflow-rule.md) | The pin / input-default / inline decision, the two gates that reject the alternatives, and current known deviations |
