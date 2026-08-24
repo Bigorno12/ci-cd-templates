@@ -246,7 +246,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
+        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@042275df166955addd19cdb9d020b16fce82738c
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}
