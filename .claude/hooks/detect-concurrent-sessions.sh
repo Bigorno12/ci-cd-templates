@@ -69,7 +69,7 @@ if (( ${#LIVE_OTHER[@]} > 0 )); then
   PRETTY_CWD="${CWD/#$HOME/~}"
   COUNT=${#LIVE_OTHER[@]}
   PIDS_STR=$(IFS=,; echo "${LIVE_OTHER[*]}")
-  MSG="⚠️ WARNING: We have detected ${COUNT} other active Claude Code session(s) in this folder (${PRETTY_CWD}). Concurrent PIDs: ${PIDS_STR}. In this repo that risks two sessions bumping the same composite-action SHA pins to different commits, gitleaks scanning a half-staged index, or a leaf workflow's new input landing against the other session's master-maven-pipeline.yml. Use the EnterWorktree tool to work in a separate Git worktree before making any changes — the worktree shares this repo's config, so core.hooksPath=.githook still applies there."
+  MSG="⚠️ WARNING: We have detected ${COUNT} other active Claude Code session(s) in this folder (${PRETTY_CWD}). Concurrent PIDs: ${PIDS_STR}. In this repo that risks two sessions bumping the same composite-action SHA pins to different commits, gitleaks scanning a half-staged index, or a leaf workflow's new input landing against the other session's master-java-pipeline.yml. Use the EnterWorktree tool to work in a separate Git worktree before making any changes — the worktree shares this repo's config, so core.hooksPath=.githook still applies there."
   MSG="$MSG" python3 -c "
 import json, os
 print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart', 'additionalContext': os.environ['MSG']}}))

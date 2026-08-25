@@ -1,5 +1,5 @@
 @startuml inputs
-' Hand-maintained. Source of truth = the workflow_call blocks of master-maven-pipeline.yml, verify.yml, release.yml
+' Hand-maintained. Source of truth = the workflow_call blocks of master-java-pipeline.yml, java-verify.yml, java-release.yml
 ' and the identical input trio at the top of every leaf workflow.
 title Input, secret and permission plumbing — what an added input costs
 
@@ -11,7 +11,7 @@ package "consumer caller" as C #EEEEEE {
   [permissions:] as P <<unset = none>>
 }
 
-package "master-maven-pipeline.yml — the public API" as M #FFFFFF {
+package "master-java-pipeline.yml — the public API" as M #FFFFFF {
   [java-version · cache-type] as SHARED
   [build-egress-policy] as BEP
   [release-egress-policy] as REP
@@ -25,7 +25,7 @@ package "master-maven-pipeline.yml — the public API" as M #FFFFFF {
   [signer-identity-regexp] as SIR
 }
 
-package "grouping layer\nverify.yml / release.yml" as GRP #E6F4EA {
+package "grouping layer\njava-verify.yml / java-release.yml" as GRP #E6F4EA {
   [re-declares every input] as RD
   [narrows permissions per job] as NP
 }
@@ -72,6 +72,27 @@ note bottom of M
   change for old pins: a consumer passing an
   input their pinned SHA does not declare fails
   with "invalid input".
+
+  A **renamed** workflow file is worse: it fails
+  with "workflow was not found", and only once the
+  consumer bumps their pin — detached from the cause.
+end note
+
+note left of M
+  **master-python-pipeline.yml has the identical
+  shape**, differing only in these inputs:
+    java-version · cache-type
+      → python-version · cache-type
+    (new) requirements · dev-requirements
+    spring-boot-args → pack-args
+    (new) builder-image
+  The egress trio, test-args, gitops-manifest-path
+  and signer-identity-regexp are verbatim the same.
+
+  Deliberately ABSENT there: python-security.yml
+  takes no python-version/cache-type — CodeQL runs
+  build-mode "none" and nothing in it runs an
+  interpreter. Do not add inputs nothing reads.
 end note
 
 note bottom of NP

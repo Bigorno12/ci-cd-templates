@@ -11,12 +11,25 @@ workflow it describes at the top; when that workflow changes, the diagram is wha
 > images appear — nothing else to fix. To preview before merging, see
 > [Rendering notes](#rendering-notes).
 
-#### Pipeline (logical architecture)
-![Pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline.puml)
+#### Pipeline — Java (logical architecture)
+![Java pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline-java.puml)
 
 The nesting shown there is not documentation — it is the `uses:` graph. GitHub forbids
 subdirectories under `.github/workflows`, so the files are flat and this diagram is the only
-place the hierarchy is visible at a glance.
+place the hierarchy is visible at a glance. Every Java workflow carries a `java-` prefix and
+every Python one a `python-`; the two unprefixed leaves (`tag.yml`, `deploy-gitops.yml`) are
+unprefixed *because* they are shared.
+
+#### Pipeline — Python
+![Python pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline-python.puml)
+
+`master-python-pipeline.yml` is the same three-level tree with the Java leaves swapped for
+pip/pytest/ruff/pack equivalents. `tag.yml` and `deploy-gitops.yml` are **shared, not
+duplicated** — they are language-agnostic, so both entry points call the same two files.
+
+The three diagrams below are drawn from the Java tree but now carry the Python deltas
+inline: `inputs.puml` lists the input renames, `egress.puml` has a Python phase package, and
+`sequence-release.puml` notes that `python-docker.yml` runs the identical release sequence.
 
 #### Input, secret and permission plumbing
 ![Inputs](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/inputs.puml)
@@ -38,16 +51,18 @@ Enforced for real by `step-security/harden-runner` as the first step of every jo
 ### Deployment topology
 
 This repo ships nothing runnable — it ships *workflow references*. A consumer pins
-`uses: Bigorno12/ci-cd-templates/.github/workflows/master-maven-pipeline.yml@<sha>`, so a
+`uses: Bigorno12/ci-cd-templates/.github/workflows/master-java-pipeline.yml@<sha>` (or
+`master-python-pipeline.yml`), so a
 merge here reaches them only on their next pin bump; `auto-release.yml` patch-bumps a tag and
 release on every green merge to `main` (keeping the 10 newest), but pins are what consumers
 actually track.
 
-Internally, workflows reference each other by local path (`./.github/workflows/lint.yml`,
-effective on the same commit) while the three composite actions under
+Internally, workflows reference each other by local path (`./.github/workflows/java-lint.yml`,
+effective on the same commit) while the four composite actions under
 [`.github/actions/`](.github/actions/) are referenced by **SHA-pinned self-reference**
-(`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 8 call sites) — so editing an
-action does nothing until a second commit bumps every pin.
+(`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 8 call sites;
+`python-setup@<sha>`, 5) — so editing an action does nothing until a second commit bumps
+every pin.
 
 On the consumer side the pipeline publishes `ghcr.io/<owner>/<repo>:main-<sha7>`, signs it
 keylessly, then commits that tag into their k8s manifest for Argo CD to sync. See

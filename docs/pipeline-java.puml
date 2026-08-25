@@ -1,6 +1,6 @@
-@startuml pipeline
-' Hand-maintained. Source of truth = .github/workflows/master-maven-pipeline.yml + verify.yml + release.yml
-title Reusable pipeline — three levels of workflow_call, one entry point
+@startuml pipeline-java
+' Hand-maintained. Source of truth = .github/workflows/master-java-pipeline.yml + java-verify.yml + java-release.yml
+title Java pipeline — three levels of workflow_call, one of two entry points
 
 skinparam componentStyle rectangle
 skinparam linetype ortho
@@ -9,23 +9,23 @@ package "consumer repo" as CALLER #EEEEEE {
   [.github/workflows/ci.yml] as CI <<caller>>
 }
 
-[master-maven-pipeline.yml] as M <<workflow_call>> #FFFFFF
+[master-java-pipeline.yml] as M <<workflow_call>> #FFFFFF
 
 package "① build + verify — every job starts at t=0" as S1 #E8F0FE {
-  [build.yml] as B <<test-compile · reject .env>>
-  package "verify.yml — grouping only, no steps" as V #E6F4EA {
-    [lint.yml] as L
-    [unit-tests.yml] as U
-    [integration-tests.yml] as I
-    [security.yml] as SEC <<CodeQL · Gitleaks · Trivy>>
+  [java-build.yml] as B <<test-compile · reject .env>>
+  package "java-verify.yml — grouping only, no steps" as V #E6F4EA {
+    [java-lint.yml] as L
+    [java-unit-tests.yml] as U
+    [java-integration-tests.yml] as I
+    [java-security.yml] as SEC <<CodeQL · Gitleaks · Trivy>>
   }
 }
 
-[dependency-graph.yml] as DG <<push events only>> #E8F0FE
+[java-dependency-graph.yml] as DG <<push events only>> #E8F0FE
 
-package "② release.yml — grouping only, no steps" as S2 #FEF7E0 {
+package "② java-release.yml — grouping only, no steps" as S2 #FEF7E0 {
   [tag.yml] as T <<PRs to main>>
-  [docker.yml] as D <<buildpack · scan · SBOM · sign>>
+  [java-docker.yml] as D <<buildpack · scan · SBOM · sign>>
   [deploy-gitops.yml] as G <<verify gate · bump manifest>>
 }
 
@@ -55,7 +55,7 @@ note right of S1
 end note
 
 note right of DG
-  Its own workflow, not a job in build.yml:
+  Its own workflow, not a job in java-build.yml:
   • keeps build at contents: read
     (only graph submission needs write)
   • stays off the critical path — a needs:
@@ -71,12 +71,17 @@ note bottom of GATE
 end note
 
 note bottom of S2
-  Event gating (release.yml):
+  **tag.yml and deploy-gitops.yml are shared
+  with master-python-pipeline.yml** — they are
+  language-agnostic, so neither has a java- prefix
+  and neither may be forked per language.
+
+  Event gating (java-release.yml):
   • tag          — PR → main, same-repo only
   • docker-publish — push, or same-repo PR
     (PR builds are NOT pushed or signed)
   • deploy-gitops  — push to refs/heads/main
 end note
 
-footer docs/pipeline.puml — Bigorno12/ci-cd-templates
+footer docs/pipeline-java.puml — Bigorno12/ci-cd-templates
 @enduml

@@ -1,16 +1,24 @@
-name: Verify
+name: Python Verify
 
 on:
   workflow_call:
     inputs:
-      java-version:
+      python-version:
         required: false
         type: string
-        default: "25"
+        default: "3.14"
       cache-type:
         required: false
         type: string
-        default: "maven"
+        default: "pip"
+      requirements:
+        required: false
+        type: string
+        default: "requirements.txt"
+      dev-requirements:
+        required: false
+        type: string
+        default: "requirements-dev.txt"
       egress-policy:
         required: false
         type: string
@@ -33,40 +41,46 @@ on:
       extra-secrets:
         description: >
           Optional JSON object of secrets to expose to the integration tests
-          (see integration-tests.yml). Curate it explicitly; do not pass the
-          whole secret store.
+          (see python-integration-tests.yml). Curate it explicitly; do not pass
+          the whole secret store.
         required: false
 
 jobs:
   lint:
-    uses: ./.github/workflows/lint.yml
+    uses: ./.github/workflows/python-lint.yml
     permissions:
       contents: read
     with:
-      java-version: ${{ inputs.java-version }}
+      python-version: ${{ inputs.python-version }}
       cache-type: ${{ inputs.cache-type }}
+      requirements: ${{ inputs.requirements }}
+      dev-requirements: ${{ inputs.dev-requirements }}
       egress-policy: ${{ inputs.egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
 
   unit-tests:
-    uses: ./.github/workflows/unit-tests.yml
+    uses: ./.github/workflows/python-unit-tests.yml
     permissions:
       checks: write
       contents: read
     with:
-      java-version: ${{ inputs.java-version }}
+      python-version: ${{ inputs.python-version }}
       cache-type: ${{ inputs.cache-type }}
+      requirements: ${{ inputs.requirements }}
+      dev-requirements: ${{ inputs.dev-requirements }}
       egress-policy: ${{ inputs.egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
 
   integration-tests:
-    uses: ./.github/workflows/integration-tests.yml
+    uses: ./.github/workflows/python-integration-tests.yml
     permissions:
       checks: write
       contents: read
     with:
-      java-version: ${{ inputs.java-version }}
+      python-version: ${{ inputs.python-version }}
       cache-type: ${{ inputs.cache-type }}
+      requirements: ${{ inputs.requirements }}
+      dev-requirements: ${{ inputs.dev-requirements }}
       egress-policy: ${{ inputs.egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
       test-args: ${{ inputs.test-args }}
@@ -74,13 +88,11 @@ jobs:
       extra-secrets: ${{ secrets.extra-secrets }}
 
   security:
-    uses: ./.github/workflows/security.yml
+    uses: ./.github/workflows/python-security.yml
     permissions:
       security-events: write
       actions: read
       contents: read
     with:
-      java-version: ${{ inputs.java-version }}
-      cache-type: ${{ inputs.cache-type }}
       egress-policy: ${{ inputs.egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-security-endpoints }}

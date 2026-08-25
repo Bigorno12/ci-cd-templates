@@ -1,12 +1,12 @@
 @startuml egress
 ' Hand-maintained. Source of truth = the allowed-endpoints default of each leaf workflow.
 ' Regenerate the lists with: grep -A20 "allowed-endpoints:" .github/workflows/*.yml
-title Egress allowlists — harden-runner policy per phase (default "block")
+title Egress allowlists — harden-runner policy per phase, both trees (default "block")
 
 skinparam componentStyle rectangle
 skinparam linetype ortho
 
-package "core — in all four configurable phases" as CORE #FFFFFF {
+package "core — in every configurable phase of BOTH trees" as CORE #FFFFFF {
   [github.com:443]
   [api.github.com:443]
   [objects.githubusercontent.com:443]
@@ -14,14 +14,14 @@ package "core — in all four configurable phases" as CORE #FFFFFF {
   [github-releases.githubusercontent.com:443]
 }
 
-package "build / test phase\nbuild · lint · unit · integration · dependency-graph" as P1 #E8F0FE {
+package "java build / test phase\njava-build · java-lint · java-unit · java-integration · java-dependency-graph" as P1 #E8F0FE {
   [repo.maven.apache.org:443] as M1
   [repo1.maven.org:443] as M2
   [repo.spring.io:443] as M3
   [repository.jboss.org:443] as M4
 }
 
-package "security phase\nsecurity.yml" as P2 #E6F4EA {
+package "security phase\njava-security.yml" as P2 #E6F4EA {
   [maven: apache · spring · jboss] as S_MVN <<no repo1.maven.org>>
   [ghcr.io + pkg-containers] as S_GHCR
   [uploads.github.com:443] as S_UP <<SARIF upload>>
@@ -32,7 +32,7 @@ package "security phase\nsecurity.yml" as P2 #E6F4EA {
   [timestamp.sigstore.dev:443] as S_TS
 }
 
-package "docker phase\ndocker.yml" as P3 #FEF7E0 {
+package "docker phase\njava-docker.yml" as P3 #FEF7E0 {
   [maven: apache · repo1] as D_MVN <<no spring / jboss>>
   [auth.docker.io · registry-1.docker.io\nproduction.cloudfront.docker.com] as D_DH <<buildpack pulls>>
   [mirror.gcr.io:443] as D_GCR
@@ -47,6 +47,14 @@ package "gitops phase\ndeploy-gitops.yml" as P4 #FCE8E6 {
   [fulcio · rekor · tuf-repo-cdn · timestamp\n.sigstore.dev] as G_SIG <<cosign verify>>
 }
 
+package "python phases — same shape, different upstreams" as PY #E3F2FD {
+  [pypi.org:443] as PY_PYPI
+  [files.pythonhosted.org:443] as PY_PH
+  [raw.githubusercontent.com:443] as PY_RAW <<setup-python version manifest>>
+  [index.docker.io + auth · registry-1\nproduction.cloudfront.docker.com] as PY_DH <<docker phase: pack pulls the builder>>
+  [deps.paketo.io:443] as PY_PAKETO <<docker phase · REASONED, NOT OBSERVED>>
+}
+
 package "hardcoded — no input, always block" as P5 #EEEEEE {
   [tag.yml] as T <<github.com · api.github.com>>
   [auto-release.yml] as AR <<+ uploads.github.com>>
@@ -58,10 +66,12 @@ CORE --> P1
 CORE --> P2
 CORE --> P3
 CORE --> P4
+CORE --> PY
 
 P1 -[hidden]- P2
 P2 -[hidden]- P3
 P3 -[hidden]- P4
+P4 -[hidden]- PY
 
 note bottom of CORE
   Every job: egress-policy (default "block")
@@ -85,6 +95,20 @@ note right of P2
   repo.spring.io / repository.jboss.org.
   Each is trimmed to what that phase observed
   — copying a list wholesale re-widens it.
+end note
+
+note right of PY
+  The python leaves drop every Maven host
+  (apache · repo1 · spring · jboss) and add the
+  PyPI pair instead. Sigstore, Trivy, Syft,
+  GHCR and mirror.gcr.io are identical to the
+  java docker/gitops phases — deploy-gitops.yml
+  is literally the same file.
+
+  ⚠️ deps.paketo.io was reasoned about, not read
+  out of a run summary. Confirm it against the
+  first audit-policy run and drop it if the
+  buildpack never reaches it.
 end note
 
 footer docs/egress.puml — Bigorno12/ci-cd-templates

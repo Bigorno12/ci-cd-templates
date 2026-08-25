@@ -2,6 +2,8 @@
 # PostToolUse hook: runs after editing a workflow or composite action under .github/.
 #   1. Stale-pin guard: editing .github/actions/* changes nothing until the
 #      SHA-pinned self-references in .github/workflows/ are bumped
+#   1b. Dangling-pin guard: a self-reference whose pinned commit does not contain that
+#      action at all (the usual cause: the action is new and not merged yet)
 #   2. Local-action guard: `uses: ./.github/actions/...` inside a reusable workflow
 #      resolves against the CONSUMER's checkout, not this repo
 #   3. Pin guard: every third-party `uses:` must be a full 40-hex commit SHA
@@ -41,6 +43,19 @@ if (( IS_ACTION )); then
         NOTES+=("Edited the '$ACTION' composite action. It is consumed by SHA-pinned self-reference, so this change is INERT until the pins move: $SITES workflow file(s) still pin ${PINS:-<unknown>}. Merge the action change first, then a second commit bumping every pin. Find them with: grep -rn \"ci-cd-templates/.github/actions/${ACTION}@\" .github/")
     fi
 fi
+
+# ── 1b. Self-reference pin that does not contain the action at that commit ────
+# A new composite action has no commit containing it yet, so its first pins are
+# necessarily dangling: the job fails with "action not found" rather than running an
+# old version. Only judgeable when the pinned commit is present locally.
+while IFS='@' read -r ACTION_NAME PIN_SHA; do
+    [[ -n "${ACTION_NAME:-}" && -n "${PIN_SHA:-}" ]] || continue
+    git -C "$REPO_ROOT" cat-file -e "${PIN_SHA}^{commit}" 2>/dev/null || continue
+    if ! git -C "$REPO_ROOT" cat-file -e "${PIN_SHA}:.github/actions/${ACTION_NAME}/action.yml" 2>/dev/null; then
+        NOTES+=("Dangling composite-action pin in $REL: commit ${PIN_SHA:0:7} does not contain .github/actions/${ACTION_NAME}/action.yml. Every job using this pin fails with \"action not found\" — this is not a version skew, the action is simply absent at that commit (usually because it is new and unmerged). Merge the action first, then bump this pin to the merge commit. Never invent a SHA to make it resolve.")
+    fi
+done < <(grep -hoE "ci-cd-templates/\.github/actions/[a-z0-9-]+@[0-9a-f]{40}" "$FILE" 2>/dev/null \
+    | sed -E 's#.*/actions/##' | sort -u)
 
 # ── 2. A local action ref inside a reusable workflow silently breaks consumers ─
 LOCAL_ACTION=$(grep -nE 'uses:[[:space:]]*\./\.github/actions/' "$FILE" 2>/dev/null || true)

@@ -1,16 +1,12 @@
-name: Release
+name: Python Release
 
 on:
   workflow_call:
     inputs:
-      java-version:
+      python-version:
         required: false
         type: string
-        default: "25"
-      cache-type:
-        required: false
-        type: string
-        default: "maven"
+        default: "3.14"
       egress-policy:
         required: false
         type: string
@@ -20,7 +16,11 @@ on:
         required: false
         type: string
         default: ""
-      spring-boot-args:
+      builder-image:
+        required: false
+        type: string
+        default: "paketobuildpacks/builder-jammy-base"
+      pack-args:
         required: false
         type: string
         default: ""
@@ -58,7 +58,7 @@ jobs:
 
   docker-publish:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    uses: ./.github/workflows/docker.yml
+    uses: ./.github/workflows/python-docker.yml
     secrets:
       CR_PAT: ${{ secrets.CR_PAT }}
     permissions:
@@ -66,11 +66,11 @@ jobs:
       packages: write
       id-token: write
     with:
-      java-version: ${{ inputs.java-version }}
-      cache-type: ${{ inputs.cache-type }}
+      python-version: ${{ inputs.python-version }}
       egress-policy: ${{ inputs.egress-policy }}
       extra-allowed-endpoints: ${{ inputs.extra-docker-endpoints }}
-      spring-boot-args: ${{ inputs.spring-boot-args }}
+      builder-image: ${{ inputs.builder-image }}
+      pack-args: ${{ inputs.pack-args }}
 
   deploy-gitops:
     needs: docker-publish

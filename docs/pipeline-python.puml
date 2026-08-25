@@ -1,0 +1,78 @@
+@startuml pipeline-python
+' Hand-maintained. Source of truth = .github/workflows/master-python-pipeline.yml + python-verify.yml + python-release.yml
+title Python pipeline — same three levels, same entry-point contract
+
+skinparam componentStyle rectangle
+skinparam linetype ortho
+
+package "consumer repo" as CALLER #EEEEEE {
+  [.github/workflows/ci.yml] as CI <<caller>>
+}
+
+[master-python-pipeline.yml] as M <<workflow_call>> #FFFFFF
+
+package "① build + verify — every job starts at t=0" as S1 #E8F0FE {
+  [python-build.yml] as B <<compileall · reject .env>>
+  package "python-verify.yml — grouping only, no steps" as V #E6F4EA {
+    [python-lint.yml] as L <<ruff check · ruff format>>
+    [python-unit-tests.yml] as U <<pytest -m "not integration">>
+    [python-integration-tests.yml] as I <<pytest -m integration>>
+    [python-security.yml] as SEC <<CodeQL · Gitleaks · Trivy>>
+  }
+}
+
+[python-dependency-graph.yml] as DG <<push events only>> #E8F0FE
+
+package "② python-release.yml — grouping only, no steps" as S2 #FEF7E0 {
+  [tag.yml] as T <<shared · PRs to main>>
+  [python-docker.yml] as D <<pack · scan · SBOM · sign>>
+  [deploy-gitops.yml] as G <<shared · verify gate · bump manifest>>
+}
+
+[build-gate] as GATE <<if: always()>> #FFF3C4
+
+CI --> M : uses: @<sha>\nsecrets: inherit
+M --> B
+M --> V
+M --> DG
+M --> S2
+
+B --> DG : needs
+B --> S2 : needs
+V --> S2 : needs
+D --> G : needs\n+ image-digest output
+
+B ..> GATE
+DG ..> GATE
+V ..> GATE
+S2 ..> GATE
+
+note right of S1
+  Identical shape to the Java tree:
+  **verify has NO needs: build.**
+  Every job checks out and installs for
+  itself, so all five start at t=0.
+end note
+
+note right of SEC
+  Python needs no build for SAST:
+  CodeQL runs **build-mode: none**, so
+  this leaf takes no python-version /
+  cache-type input at all — nothing in
+  it runs an interpreter.
+end note
+
+note bottom of S2
+  **tag.yml and deploy-gitops.yml are the
+  same files the Java pipeline calls** —
+  they are language-agnostic, so there is
+  no python- copy of either.
+
+  python-docker.yml swaps Maven's
+  spring-boot:build-image for the pack CLI,
+  but the digest → Trivy → Syft → cosign
+  chain is unchanged.
+end note
+
+footer docs/pipeline-python.puml — Bigorno12/ci-cd-templates
+@enduml

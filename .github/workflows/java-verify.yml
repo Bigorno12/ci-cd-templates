@@ -1,0 +1,86 @@
+name: Java Verify
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      egress-policy:
+        required: false
+        type: string
+        default: "block"
+      extra-test-endpoints:
+        description: Extra endpoints appended to the lint/unit/integration base allowlists
+        required: false
+        type: string
+        default: ""
+      extra-security-endpoints:
+        description: Extra endpoints appended to the security-scan base allowlist
+        required: false
+        type: string
+        default: ""
+      test-args:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      extra-secrets:
+        description: >
+          Optional JSON object of secrets to expose to the integration tests
+          (see java-integration-tests.yml). Curate it explicitly; do not pass the
+          whole secret store.
+        required: false
+
+jobs:
+  lint:
+    uses: ./.github/workflows/java-lint.yml
+    permissions:
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
+
+  unit-tests:
+    uses: ./.github/workflows/java-unit-tests.yml
+    permissions:
+      checks: write
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
+
+  integration-tests:
+    uses: ./.github/workflows/java-integration-tests.yml
+    permissions:
+      checks: write
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-test-endpoints }}
+      test-args: ${{ inputs.test-args }}
+    secrets:
+      extra-secrets: ${{ secrets.extra-secrets }}
+
+  security:
+    uses: ./.github/workflows/java-security.yml
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-security-endpoints }}

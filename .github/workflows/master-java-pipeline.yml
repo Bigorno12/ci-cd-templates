@@ -1,4 +1,4 @@
-name: Maven Master Pipeline
+name: Java Master Pipeline
 
 on:
   workflow_call:
@@ -88,7 +88,7 @@ on:
       extra-secrets:
         description: >
           Optional JSON object of secrets to expose to the integration tests
-          (see integration-tests.yml). Curate it explicitly; do not pass the
+          (see java-integration-tests.yml). Curate it explicitly; do not pass the
           whole secret store.
         required: false
       GITOPS_PAT:
@@ -106,7 +106,7 @@ concurrency:
 
 jobs:
   build:
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/java-build.yml
     permissions:
       contents: read
     with:
@@ -118,7 +118,7 @@ jobs:
   dependency-graph:
     needs: build
     if: github.event_name == 'push'
-    uses: ./.github/workflows/dependency-graph.yml
+    uses: ./.github/workflows/java-dependency-graph.yml
     permissions:
       contents: write
     with:
@@ -128,7 +128,7 @@ jobs:
       extra-allowed-endpoints: ${{ inputs.extra-build-endpoints }}
 
   verify:
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/java-verify.yml
     permissions:
       checks: write
       security-events: write
@@ -148,7 +148,7 @@ jobs:
     needs:
       - build
       - verify
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/java-release.yml
     permissions:
       contents: write
       packages: write

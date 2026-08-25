@@ -1,0 +1,70 @@
+name: Setup Python Environment
+description: Installs the requested Python version, configures pip caching, and installs the project's requirements
+
+inputs:
+  python-version:
+    description: The Python version to install
+    required: false
+    default: "3.14"
+  cache-type:
+    description: The dependency manager to cache (pip)
+    required: false
+    default: "pip"
+  requirements:
+    description: >
+      Runtime requirements file to install. Skipped when empty or absent, so a
+      repo that declares everything in dev-requirements still works.
+    required: false
+    default: "requirements.txt"
+  dev-requirements:
+    description: >
+      Test and lint requirements file to install. Skipped when empty or absent —
+      the image build passes "" because it needs no test tooling.
+    required: false
+    default: "requirements-dev.txt"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      id: setup-python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache-type }}
+        # Both files key the cache, so adding a dev-only dependency still
+        # invalidates it. Empty lines are ignored by the glob.
+        cache-dependency-path: |
+          ${{ inputs.requirements }}
+          ${{ inputs.dev-requirements }}
+
+    - name: Show cache status
+      shell: bash
+      env:
+        CACHE_TYPE: ${{ inputs.cache-type }}
+        CACHE_HIT: ${{ steps.setup-python.outputs.cache-hit }}
+      run: |
+        echo "Cache type: $CACHE_TYPE"
+        echo "Cache hit: $CACHE_HIT"
+
+    - name: Install requirements
+      shell: bash
+      env:
+        REQUIREMENTS: ${{ inputs.requirements }}
+        DEV_REQUIREMENTS: ${{ inputs.dev-requirements }}
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+
+        INSTALLED=false
+        for FILE in "$REQUIREMENTS" "$DEV_REQUIREMENTS"; do
+          if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+            echo "Installing from $FILE"
+            python -m pip install -r "$FILE"
+            INSTALLED=true
+          fi
+        done
+
+        if [ "$INSTALLED" = "false" ]; then
+          echo "::warning::No requirements installed (looked for '$REQUIREMENTS' and '$DEV_REQUIREMENTS')"
+        fi

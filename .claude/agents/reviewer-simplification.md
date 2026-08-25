@@ -22,7 +22,7 @@ Name the simpler form that does the same job.
 - `if: ${{ github.event_name == 'push' }}` → `if: github.event_name == 'push'`; the
   `${{ }}` wrapper is noise in an `if:`.
 - A step-level `if:` that restates the job-level `if:`, or a job-level `if:` that
-  restates the event gate `release.yml` already applies.
+  restates the event gate `java-release.yml` / `python-release.yml` already applies.
 - `if: success()` (the default), or `contains(…)`/`format(…)` gymnastics where a plain
   `==` comparison works.
 - A condition on `github.ref` where `github.event_name` already excludes the case (or
@@ -31,6 +31,8 @@ Name the simpler form that does the same job.
 **Shell inside `run:`**
 - Two mechanisms doing one filter — e.g. a `git ls-files` pathspec exclusion *and* a
   `grep -v` for the same pattern; keep whichever is clearer, drop the other.
+  `python-build.yml`'s `.env` check is the corrected reference form; `java-build.yml:64` is the
+  one still carrying both.
 - Nested `if`/`else` around an error path where an early `exit 1` flattens it.
 - Useless plumbing: `cat X | grep`, `echo "$X" | wc -l`, a variable assigned once and
   used once immediately after.
@@ -45,10 +47,13 @@ Name the simpler form that does the same job.
 - A job whose only purpose is to evaluate a condition → fold it into the consumer's `if:`.
 - An `id:` on a step no expression references; an `outputs:` block nothing reads.
 - A new phase added to `build-gate`'s `needs:` but not to its `RESULTS` array (or the
-  reverse) — the half-wired version is worse than either.
+  reverse) — the half-wired version is worse than either. There is one `build-gate` per
+  master pipeline; a change to the gating logic usually belongs in both.
 
 **Inputs and secrets**
-- A new input whose default nobody ever overrides → hardcode it.
+- A new input whose default nobody ever overrides → hardcode it. But an input that is
+  *absent on purpose* is not a gap to fill: `python-security.yml` takes no
+  `python-version`/`cache-type` because nothing in it runs an interpreter.
 - Two inputs that always move together (a phase's policy and its endpoint list) → one.
 - An input or secret left in a `workflow_call` block after its last use disappeared.
 - A `description:` that restates the input name instead of explaining the failure mode
@@ -65,10 +70,16 @@ Name the simpler form that does the same job.
   `permissions:` block — even when they look redundant. They are audited controls;
   zizmor and the repo's policy require them, and `permissions: {}` on `build-gate` is
   deliberate.
-- Don't propose folding the per-workflow `harden-runner`/`checkout`/`java-setup` preamble
-  into something shared — self-contained, readable-end-to-end workflows are the point.
-- Don't propose collapsing `verify.yml`/`release.yml` into the master pipeline; they
-  narrow permissions and keep `needs:` off the critical path.
+- Don't propose folding the per-workflow `harden-runner`/`checkout`/`java-setup` (or
+  `python-setup`) preamble into something shared — self-contained, readable-end-to-end
+  workflows are the point.
+- Don't propose merging the Java and Python trees behind a `language:` input. Two explicit
+  entry points is the design; one branching pipeline would put every consumer's toolchain
+  on one blast radius.
+- Don't propose collapsing `java-verify.yml`/`java-release.yml` (or their `python-` twins) into the
+  master pipeline; they narrow permissions and keep `needs:` off the critical path.
+- `python-integration-tests.yml` treating pytest exit code 5 as a pass is a deliberate
+  guard, not dead branching: a repo with no integration-marked tests is a valid state.
 - Don't propose replacing a pinned SHA with a tag, or `./` for a composite action (inside
   a reusable workflow that resolves to the *consumer's* checkout).
 - Don't flag YAML formatting, indentation, or line length — `.yamllint.yml` owns that

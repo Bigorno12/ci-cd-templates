@@ -1,4 +1,4 @@
-name: Buildpack Build and Push Module
+name: Python Buildpack Build and Push Module
 
 on:
   workflow_call:
@@ -14,39 +14,50 @@ on:
         type: string
         default: >
           auth.docker.io:443
+          index.docker.io:443
+          registry-1.docker.io:443
+          production.cloudfront.docker.com:443
           ghcr.io:443
           github.com:443
-          production.cloudfront.docker.com:443
-          registry-1.docker.io:443
-          release-assets.githubusercontent.com:443
-          repo1.maven.org:443
-          repo.maven.apache.org:443
           api.github.com:443
+          deps.paketo.io:443
+          pypi.org:443
+          files.pythonhosted.org:443
           objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
           pkg-containers.githubusercontent.com:443
+          raw.githubusercontent.com:443
           fulcio.sigstore.dev:443
           rekor.sigstore.dev:443
           tuf-repo-cdn.sigstore.dev:443
-          mirror.gcr.io:443
-          github-releases.githubusercontent.com:443
-          raw.githubusercontent.com:443
-          toolbox-data.anchore.io:443
           timestamp.sigstore.dev:443
+          toolbox-data.anchore.io:443
+          check.trivy.dev:443
+          get.trivy.dev:443
+          mirror.gcr.io:443
       extra-allowed-endpoints:
         description: Extra endpoints appended to allowed-endpoints (base list stays intact)
         required: false
         type: string
         default: ""
-      java-version:
+      python-version:
+        description: >
+          Passed to the buildpack as BP_CPYTHON_VERSION. The interpreter is
+          installed inside the image, so no runner-side Python is set up here.
         required: false
         type: string
-        default: "25"
-      cache-type:
+        default: "3.14"
+      builder-image:
+        description: >
+          Cloud Native Buildpacks builder used by pack. Left on a mutable tag on
+          purpose — Paketo republishes it for CVE fixes; pin a digest here if you
+          need a reproducible build.
         required: false
         type: string
-        default: "maven"
-      spring-boot-args:
-        description: Extra arguments for the Spring Boot build command (e.g. profiles or modules)
+        default: "paketobuildpacks/builder-jammy-base"
+      pack-args:
+        description: Extra arguments for the pack build command (e.g. --env or --buildpack)
         required: false
         type: string
         default: ""
@@ -90,12 +101,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
-        with:
-          java-version: ${{ inputs.java-version }}
-          cache-type: ${{ inputs.cache-type }}
-
+      # pack reads the docker config this writes, so the login must precede it.
       - name: Login to Github Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
@@ -104,29 +110,32 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.CR_PAT || github.token }}
 
-      - name: Make Maven wrappers executable
-        run: chmod +x mvnw
+      - name: Install pack CLI
+        uses: buildpacks/github-actions/setup-pack@36416a96be10a6cc7170e7c9c63656d4092f78b2
 
-      - name: Build and Push (Maven)
+      - name: Build and Push (pack)
         id: build
         env:
           REPO_NAME: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           SHORT_SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REGISTRY_ACTOR: ${{ github.repository_owner }}
-          REGISTRY_PASSWORD: ${{ secrets.CR_PAT || github.token }}
-          SPRING_BOOT_ARGS: ${{ inputs.spring-boot-args }}
+          BUILDER_IMAGE: ${{ inputs.builder-image }}
+          PYTHON_VERSION: ${{ inputs.python-version }}
+          PACK_ARGS: ${{ inputs.pack-args }}
         run: |
+          set -euo pipefail
           REPO_LC=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
           SHORT_SHA=$(echo "$SHORT_SHA" | cut -c1-7)
 
           if [ "$EVENT_NAME" == "pull_request" ]; then
             TAG="pr-${PR_NUMBER}"
-            PUBLISH=false
+            PUBLISH="false"
+            PUBLISH_FLAG=""
           else
             TAG="main-${SHORT_SHA}"
             PUBLISH="true"
+            PUBLISH_FLAG="--publish"
           fi
 
           IMAGE_NAME="ghcr.io/${REPO_LC}:${TAG}"
@@ -135,17 +144,10 @@ jobs:
           echo "Publishing to GHCR: $PUBLISH"
 
           # shellcheck disable=SC2086
-          ./mvnw -B -ntp -T 1C package spring-boot:build-image $SPRING_BOOT_ARGS \
-            -Dmaven.test.skip=true \
-            -Denforcer.skip=true \
-            -Dspotless.check.skip=true \
-            -Djacoco.skip=true \
-            -Dcheckstyle.skip=true \
-            -Dspring-boot.build-image.imageName="$IMAGE_NAME" \
-            -Dspring-boot.build-image.publish="$PUBLISH" \
-            -Dspring-boot.build-image.docker.publishRegistry.url=https://ghcr.io \
-            -Dspring-boot.build-image.docker.publishRegistry.username="$REGISTRY_ACTOR" \
-            -Dspring-boot.build-image.docker.publishRegistry.password="$REGISTRY_PASSWORD"
+          pack build "$IMAGE_NAME" \
+            --builder "$BUILDER_IMAGE" \
+            --env BP_CPYTHON_VERSION="$PYTHON_VERSION" \
+            $PUBLISH_FLAG $PACK_ARGS
 
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
@@ -165,14 +167,18 @@ jobs:
             exit 0
           fi
 
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_NAME" 2>/dev/null || true)
+          # pack --publish leaves nothing in the local daemon, so the digest comes
+          # from the registry rather than from docker inspect.
+          DIGEST=$(docker buildx imagetools inspect "$IMAGE_NAME" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
           if [ -z "$DIGEST" ]; then
             echo "::error::Could not resolve pushed image digest for $IMAGE_NAME"
             exit 1
           fi
-          echo "Resolved $IMAGE_NAME -> $DIGEST"
-          echo "ref=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+          REF="${IMAGE_NAME%:*}@${DIGEST}"
+          echo "Resolved $IMAGE_NAME -> $REF"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "digest=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Trivy DB cache date
         id: trivy-date
@@ -246,7 +252,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
+        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@042275df166955addd19cdb9d020b16fce82738c
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}

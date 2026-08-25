@@ -1,11 +1,12 @@
 @startuml sequence-release
-' Hand-maintained. Source of truth = .github/workflows/docker.yml + deploy-gitops.yml
+' Hand-maintained. Source of truth = .github/workflows/java-docker.yml + deploy-gitops.yml
+' python-docker.yml runs the identical sequence — only the build step differs (pack build).
 title Push to main — build, pin to digest, sign, verify, promote
 
 autonumber
 skinparam responseMessageBelowArrow true
 
-participant "docker.yml\nbuild-and-push" as D <<release>>
+participant "java-docker.yml\nbuild-and-push" as D <<release>>
 participant "Maven + Paketo\nspring-boot:build-image" as MVN
 database "GHCR" as GHCR
 participant "Trivy" as TRIVY
@@ -85,6 +86,15 @@ else no diff
   G -> G : "No manifest changes detected."
 end
 MANIFEST --> ARGO : auto-sync (prune + self-heal)
+
+note over D, MANIFEST
+  **python-docker.yml is the same sequence.** Only step 1
+  differs: `pack build --publish` replaces Maven + Paketo,
+  and the digest is read back with `docker buildx imagetools
+  inspect` because pack --publish leaves nothing in the local
+  daemon. Trivy → Syft → cosign sign → attest → deploy-gitops
+  are byte-identical, and deploy-gitops.yml is the same file.
+end note
 
 footer docs/sequence-release.puml — Bigorno12/ci-cd-templates
 @enduml
