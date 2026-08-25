@@ -1,16 +1,8 @@
-name: Linting Module
+name: Java Unit Test Module
 
 on:
   workflow_call:
     inputs:
-      java-version:
-        required: false
-        type: string
-        default: "25"
-      cache-type:
-        required: false
-        type: string
-        default: "maven"
       egress-policy:
         description: Harden runner policy (audit or block)
         required: false
@@ -35,14 +27,23 @@ on:
         required: false
         type: string
         default: ""
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
 
 jobs:
-  spotless-check:
-    name: Code Formatting (Spotless & Ktlint)
+  unit-test:
+    name: Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
+      checks: write
     steps:
 
       - name: Harden Runner
@@ -59,7 +60,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@042275df166955addd19cdb9d020b16fce82738c
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -67,5 +68,15 @@ jobs:
       - name: Make Maven wrappers executable
         run: chmod +x mvnw
 
-      - name: Verify Code Formatting (Maven)
-        run: ./mvnw -B -ntp spotless:check
+      - name: Run Unit Test (Maven)
+        run: ./mvnw -B -ntp -T 1C test --file pom.xml
+
+      - name: Publish Unit Tests Report (Maven)
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2
+        if: always()
+        continue-on-error: true
+        with:
+          name: Maven Unit Tests
+          path: "**/target/*-reports/TEST-*.xml"
+          reporter: java-junit
+          fail-on-error: 'false'

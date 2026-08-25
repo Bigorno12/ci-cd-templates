@@ -1,4 +1,4 @@
-name: Security Scan Module
+name: Python Security Scan Module
 
 on:
   workflow_call:
@@ -18,31 +18,20 @@ on:
           ghcr.io:443
           pkg-containers.githubusercontent.com:443
           release-assets.githubusercontent.com:443
-          repo.maven.apache.org:443
-          repo.spring.io:443
-          repository.jboss.org:443
           uploads.github.com:443
           objects.githubusercontent.com:443
           github-releases.githubusercontent.com:443
           raw.githubusercontent.com:443
+          pypi.org:443
+          files.pythonhosted.org:443
           check.trivy.dev:443
           get.trivy.dev:443
-          get.anchore.io:443
-          timestamp.sigstore.dev:443
           mirror.gcr.io:443
       extra-allowed-endpoints:
         description: Extra endpoints appended to allowed-endpoints (base list stays intact)
         required: false
         type: string
         default: ""
-      java-version:
-        required: false
-        type: string
-        default: "25"
-      cache-type:
-        required: false
-        type: string
-        default: "maven"
 
 jobs:
   codeql:
@@ -96,39 +85,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
-        with:
-          java-version: ${{ inputs.java-version }}
-          cache-type: ${{ inputs.cache-type }}
-
+      # Python needs no build step for CodeQL: build-mode "none" extracts the
+      # sources directly, so there is no compile to set up an interpreter for.
       - name: Initialize CodeQL
         if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@18420e3271f74589575af831a523c833acda327f
         with:
-          languages: java-kotlin
-          build-mode: manual
-
-      - name: Make Maven wrappers executable
-        if: steps.code-scanning.outputs.enabled == 'true'
-        run: chmod +x mvnw
-
-      - name: Compile for CodeQL (Maven)
-        if: steps.code-scanning.outputs.enabled == 'true'
-        run: >
-          ./mvnw -B -ntp clean compile
-          -T 1C
-          -Dmaven.test.skip=true
-          -Denforcer.skip=true
-          -Dspotless.check.skip=true
-          -Djacoco.skip=true
-          -Dcheckstyle.skip=true
+          languages: python
+          build-mode: none
 
       - name: Perform CodeQL Analysis
         if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/analyze@18420e3271f74589575af831a523c833acda327f
         with:
-          category: "/language:java-kotlin"
+          category: "/language:python"
 
   gitleaks:
     name: Gitleaks Security Scan
@@ -202,7 +172,6 @@ jobs:
           exit-code: '1'
           format: table
           cache-dir: ${{ github.workspace }}/.cache/trivy
-
 
       - name: Trivy full report (non-blocking)
         continue-on-error: true

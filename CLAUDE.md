@@ -8,15 +8,17 @@ These workflows are the trust boundary for every repo that calls them — a slop
 
 ## Project Overview
 
-Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Java 25) consumers. There is **no application code and no test suite** — every file is CI configuration, so "build" and "test" here mean *lint the YAML and reason about what happens on a runner*. Consumers call one entry point (`master-maven-pipeline.yml`) instead of duplicating pipeline logic; `Bigorno12/monolith-architecture` is the reference consumer.
+Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Java 25) and Python (pip + pytest + ruff, CPython 3.14) consumers. There is **no application code and no test suite** — every file is CI configuration, so "build" and "test" here mean *lint the YAML and reason about what happens on a runner*. Consumers call one entry point (`master-java-pipeline.yml` or `master-python-pipeline.yml`) instead of duplicating pipeline logic; `Bigorno12/monolith-architecture` is the reference consumer.
 
 **Structure:** GitHub forbids subdirectories under `.github/workflows`, so the workflow files are necessarily flat — the hierarchy lives in `uses:` edges, not in folders.
-- `.github/workflows/` — 14 workflows: 1 entry point, 2 grouping layers, 9 leaf modules, 2 for this repo's own CI
-- `.github/actions/` — 3 composite actions (`java-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
+- `.github/workflows/` — 24 workflows: 2 entry points (Java, Python), 4 grouping layers, 16 leaf modules, 2 for this repo's own CI. `tag.yml` and `deploy-gitops.yml` are language-agnostic and shared by both entry points rather than duplicated.
+- `.github/actions/` — 4 composite actions (`java-setup`, `python-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
 - `.githook/` — `pre-commit` (gitleaks) + `pre-push` (actionlint + yamllint), mirroring CI so failures surface before a runner
-- `docs/` — 5 hand-maintained PlantUML diagrams (incl. `docs/c4/`), rendered in [ARCHITECTURE.md](ARCHITECTURE.md) via the PlantUML proxy
+- `docs/` — 6 hand-maintained PlantUML diagrams (incl. `docs/c4/`), rendered in [ARCHITECTURE.md](ARCHITECTURE.md) via the PlantUML proxy
 - `.claude/` — agent config: 3 single-focus reviewers, the `/my-command` gate, the workflow rule, and 2 vendored hooks wired by `settings.json`
 - Each leaf workflow is deliberately self-contained: its own `harden-runner` allowlist, its own checkout/JDK preamble, readable end-to-end without following indirection
+
+The Python tree mirrors the Java one file-for-file (`python-*.yml`), with these deliberate asymmetries: `python-security.yml` takes **no** `python-version`/`cache-type` (CodeQL uses `build-mode: none`, nothing there runs an interpreter); `python-docker.yml` drives the `pack` CLI instead of `spring-boot:build-image` and resolves its digest via `docker buildx imagetools` because `pack --publish` leaves nothing in the local daemon; `python-setup` writes nothing to `$GITHUB_ENV`, so it needs no `github-env` ignore.
 
 **Companion docs — read the one that matches the task:**
 
@@ -30,7 +32,7 @@ Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Jav
 | [`.github/CODEOWNERS`](.github/CODEOWNERS) | `@Bigorno12` reviews every PR — nothing merges unreviewed. |
 | [`.claude/agents/reviewer-*.md`](.claude/agents/) | Three single-focus reviewers (reuse / simplification / efficiency), run in parallel as one pass. Scoped to workflow YAML and `run:` shell — they know which controls are off-limits. |
 | [`.claude/commands/my-command.md`](.claude/commands/my-command.md) | `/my-command` — the local gate (actionlint → yamllint → zizmor → gitleaks), which findings are mechanical repairs, and which are design decisions to stop and ask about. |
-| [`.claude/hooks/`](.claude/hooks/) | Two vendored Claude Code hooks: `post-workflow-edit.sh` (stale pins, `uses: ./` for actions, unpinned refs, control coverage, actionlint/yamllint) and `detect-concurrent-sessions.sh` (worktree nudge). Read-only — neither rewrites a file. |
+| [`.claude/hooks/`](.claude/hooks/) | Two vendored Claude Code hooks: `post-workflow-edit.sh` (stale pins, **dangling pins**, `uses: ./` for actions, unpinned refs, control coverage, actionlint/yamllint) and `detect-concurrent-sessions.sh` (worktree nudge). Read-only — neither rewrites a file. |
 | [`.claude/settings.json`](.claude/settings.json) | Shared hook wiring: `PostToolUse` on `Edit\|Write` and `SessionStart`. Commit changes here — they apply to every teammate. Personal allowlists go in `settings.local.json` (gitignored globally, not by this repo's `.gitignore`). |
 
 ## Common Commands
@@ -54,9 +56,13 @@ Don't confuse these with `.claude/hooks/` — a different mechanism (Claude Code
 
 ### Finding what a change touches
 ```sh
-grep -rn "Bigorno12/ci-cd-templates" .github/   # every composite-action pin that needs bumping
-grep -rn "uses: \./" .github/                   # the workflow_call call graph
+grep -rn "Bigorno12/ci-cd-templates" .github/   # all 13 composite-action pins (8 java-setup, 5 python-setup)
+grep -rn "uses: \./" .github/                   # both workflow_call call graphs
 grep -rn "allowed-endpoints" .github/workflows/ # every egress allowlist
+
+# Does a pinned commit actually contain the action? Non-zero = dangling pin,
+# which lints clean and fails at runtime with "action not found".
+git cat-file -e <pinned-sha>:.github/actions/python-setup/action.yml
 ```
 
 ### Verifying a published image (consumer side)
@@ -70,34 +76,51 @@ cosign verify-attestation --type cyclonedx  ...same flags...  # the Syft SBOM
 ## Architecture
 
 ### Call graph — three levels of `workflow_call`
+
+Two parallel trees, one per language. The Python one is the same shape with `python-`
+leaves; `tag.yml` and `deploy-gitops.yml` are shared, not forked.
+
 ```
-master-maven-pipeline.yml        the only entry point consumers call
-├─ build.yml                     test-compile · reject tracked .env          [contents: read]
-├─ dependency-graph.yml           needs: build · push only · off critical path [contents: write]
-├─ verify.yml   ─────────►  lint.yml · unit-tests.yml · integration-tests.yml · security.yml
-├─ release.yml  ─────────►  tag.yml (PRs to main) · docker.yml ──► deploy-gitops.yml (push to main)
+master-java-pipeline.yml        one of two entry points consumers call
+├─ java-build.yml                     test-compile · reject tracked .env          [contents: read]
+├─ java-dependency-graph.yml           needs: build · push only · off critical path [contents: write]
+├─ java-verify.yml   ─────────►  java-lint.yml · java-unit-tests.yml · java-integration-tests.yml · java-security.yml
+├─ java-release.yml  ─────────►  tag.yml (PRs to main) · java-docker.yml ──► deploy-gitops.yml (push to main)
 └─ build-gate                    if: always() · fails on any failure/cancelled
 ```
-`verify.yml` and `release.yml` are **pure grouping layers** — no steps, only job plumbing and permission narrowing. All five stage-① jobs start at t=0: `verify` has no `needs: build`, because every job checks out and compiles for itself.
+`java-verify.yml` and `java-release.yml` are **pure grouping layers** — no steps, only job plumbing and permission narrowing. All five stage-① jobs start at t=0: `verify` has no `needs: build`, because every job checks out and compiles for itself.
 
 - `build` runs `test-compile`, not `package` — its output is discarded, so jar assembly was pure cost ahead of the serial verify phase. Real packaging failures surface in `docker-publish`.
 - `dependency-graph` is its own workflow so `build` can stay `contents: read`, and so `release` doesn't wait on bookkeeping (`needs:` on a reusable workflow waits for *every* job inside it).
 - `build-gate` treats `skipped` as a pass — `dependency-graph` is push-only and release jobs skip per-event.
 - `auto-release.yml` and `workflow-lint.yml` are **this repo's** CI, not part of the consumer pipeline.
 
+```
+master-python-pipeline.yml       the Python entry point
+├─ python-build.yml              compileall · reject tracked .env             [contents: read]
+├─ python-dependency-graph.yml    needs: build · push only · pip graph          [contents: write]
+├─ python-verify.yml  ────►  python-lint · python-unit-tests · python-integration-tests · python-security
+├─ python-release.yml ────►  tag.yml (shared) · python-docker.yml ──► deploy-gitops.yml (shared)
+└─ build-gate                    identical twin of the Java one
+```
+- `python-security.yml` takes **no** `python-version`/`cache-type`: CodeQL runs `build-mode: none`, so unlike the Java SAST job there is no compile to set an interpreter up for.
+- `python-docker.yml` drives the `pack` CLI instead of `spring-boot:build-image`, and resolves its digest with `docker buildx imagetools inspect` because `pack --publish` leaves nothing in the local daemon.
+- `python-integration-tests.yml` treats pytest exit code 5 ("no tests collected") as a pass — a repo with no `integration`-marked tests is valid. The unit job does not.
+
 ### Two reference styles — and why it matters
-- **Workflows** reference each other locally: `uses: ./.github/workflows/lint.yml`. Changes take effect on the same commit.
-- **Composite actions** use an absolute SHA-pinned self-reference: `uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>` (8 call sites). **Editing `.github/actions/*/action.yml` has no effect until the pins are bumped** — merge the action change, then a second commit bumping every pin to the new SHA.
+- **Workflows** reference each other locally: `uses: ./.github/workflows/java-lint.yml`. Changes take effect on the same commit.
+- **Composite actions** use an absolute SHA-pinned self-reference: `uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>` (8 call sites; `python-setup@<sha>`, 5). **Editing `.github/actions/*/action.yml` has no effect until the pins are bumped** — merge the action change, then a second commit bumping every pin to the new SHA.
+- A **new** action makes that worse than inert: the 5 `python-setup` pins currently carry a SHA that predates the action, so they resolve to nothing and every Python job fails with "action not found" until the post-merge bump. `post-workflow-edit.sh` now flags this; `git cat-file -e <sha>:<path>` confirms it.
 
 ### Input plumbing
 Every leaf exposes the same egress trio: `egress-policy` (default `"block"`), `allowed-endpoints` (the base allowlist, held as the input's *default* — this is where hosts actually live), and `extra-allowed-endpoints` (appended by the caller; the base stays intact). The master pipeline fans this into phase-scoped inputs.
 
 Adding an input means editing the leaf, the grouping layer, **and** the master pipeline. A consumer passing an input that their pinned SHA doesn't declare fails with "invalid input" — so input additions are effectively breaking changes for old pins.
 
-`permissions` are re-declared at every level and **intersect**: a reusable workflow can never exceed what the caller granted, and an unset permission defaults to `none`. Widening a leaf's needs means widening `verify.yml`/`release.yml`, `master-maven-pipeline.yml`, *and* the consumer's caller workflow.
+`permissions` are re-declared at every level and **intersect**: a reusable workflow can never exceed what the caller granted, and an unset permission defaults to `none`. Widening a leaf's needs means widening `java-verify.yml`/`java-release.yml`, `master-java-pipeline.yml`, *and* the consumer's caller workflow.
 
 ### The digest chain — do not break this
-`docker.yml`'s `Resolve image reference` step turns the pushed tag into an immutable `name@sha256:...` via `docker inspect` and exports it as the `image-digest` output. Every downstream step — Trivy, Syft, `cosign sign`, `cosign attest`, and the deploy gate — operates on `steps.ref.outputs.ref`, **never a mutable tag**, so a tag repointed between build and deploy cannot slip through.
+`java-docker.yml`'s `Resolve image reference` step turns the pushed tag into an immutable `name@sha256:...` via `docker inspect` and exports it as the `image-digest` output. Every downstream step — Trivy, Syft, `cosign sign`, `cosign attest`, and the deploy gate — operates on `steps.ref.outputs.ref`, **never a mutable tag**, so a tag repointed between build and deploy cannot slip through.
 
 `deploy-gitops.yml`'s **first steps** are GHCR login + `cosign verify`, before any checkout or commit; an empty digest exits 1 rather than promoting an unverified artifact. On PRs nothing is pushed, so `digest` is empty, `ref` is the local tag, and signing is skipped.
 
@@ -105,7 +128,7 @@ Adding an input means editing the leaf, the grouping layer, **and** the master p
 
 ## Configuration & Inputs
 
-`master-maven-pipeline.yml` is the public API. Its surface:
+`master-java-pipeline.yml` is one of the two public APIs. Its surface:
 
 | Input | Default | Notes |
 |---|---|---|
@@ -118,7 +141,17 @@ Adding an input means editing the leaf, the grouping layer, **and** the master p
 | `gitops-manifest-path` | `"k8s/api.yaml"` | File whose `image:` line gets bumped |
 | `signer-identity-regexp` | `""` → `^https://github\.com/<owner>/[^/]+/\.github/workflows/` | The default only lines up inside the `Bigorno12` org |
 
-Secrets are all optional and fall back to `github.token`: `CR_PAT` (GHCR push + cleanup), `GITOPS_PAT` (manifest push), `extra-secrets` (JSON object → env vars for integration tests; `github_token` is filtered out, and `toJSON(secrets)` must never be passed).
+`master-python-pipeline.yml` is the second public API. It shares the egress trio, `test-args`, `gitops-manifest-path` and `signer-identity-regexp` verbatim; these differ:
+
+| Input | Default | Notes |
+|---|---|---|
+| `python-version` / `cache-type` | `"3.14"` / `"pip"` | Threaded to every leaf's `python-setup`; also passed to the buildpack as `BP_CPYTHON_VERSION` |
+| `requirements` | `"requirements.txt"` | Must exist even if empty — it keys the pip cache, and `setup-python` errors when the glob matches nothing |
+| `dev-requirements` | `"requirements-dev.txt"` | Must provide `pytest` and `ruff`. `python-dependency-graph.yml` passes `""` so dev tooling stays out of the shipped graph |
+| `builder-image` | `"paketobuildpacks/builder-jammy-base"` | Deliberately a mutable tag — Paketo republishes it for CVE fixes. Pin a digest for reproducibility |
+| `pack-args` | `""` | Appended to `pack build` (replaces `spring-boot-args`) |
+
+Secrets are all optional and fall back to `github.token`: `CR_PAT` (GHCR push + cleanup), `GITOPS_PAT` (manifest push), `extra-secrets` (JSON object → env vars for integration tests; `github_token` is filtered out, and `toJSON(secrets)` must never be passed). Both pipelines take the same three.
 
 Concurrency: `${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress` everywhere **except** `main`.
 
@@ -133,9 +166,9 @@ Non-negotiable controls; a PR that weakens one needs an explicit reason.
 - **`persist-credentials: false`** on checkout unless the job genuinely pushes. Only `tag.yml` and `deploy-gitops.yml` use `true`.
 - **Least-privilege `permissions`** on every job, including `permissions: {}` on `build-gate`.
 - **Keyless signing** via GitHub OIDC (`id-token: write`) — no long-lived keys — plus a Syft CycloneDX SBOM uploaded as a 30-day artifact *and* bound to the digest as an in-toto attestation.
-- **Fail closed, never silently skip** — `security.yml`'s `codeql` job probes the Code Scanning API: 200/404 runs the analysis, 403 skips with a warning, anything else **errors** rather than silently skipping SAST.
+- **Fail closed, never silently skip** — `java-security.yml`'s `codeql` job probes the Code Scanning API: 200/404 runs the analysis, 403 skips with a warning, anything else **errors** rather than silently skipping SAST.
 - **Trivy, two passes** — blocking on fixable `CRITICAL,HIGH`; then a non-blocking `vuln,secret,misconfig` report down to `MEDIUM` including unfixed, for visibility. DB cached per UTC date, saved only on `main`.
-- **`$GITHUB_ENV` writes need a guard and a justified `# zizmor: ignore[github-env]`** — `java-setup` rejects multi-line `maven-opts`; `integration-tests.yml` filters `github_token` and uses a random heredoc delimiter (`EOF_$(openssl rand -hex 16)`).
+- **`$GITHUB_ENV` writes need a guard and a justified `# zizmor: ignore[github-env]`** — `java-setup` rejects multi-line `maven-opts`; `java-integration-tests.yml` filters `github_token` and uses a random heredoc delimiter (`EOF_$(openssl rand -hex 16)`).
 - **Never interpolate `${{ github.event.* }}` or secrets into a `run:` body** — bind to `env:` and reference `"$VAR"`. This is a template-injection sink zizmor flags.
 
 ## Consumer Contract
@@ -144,37 +177,50 @@ What the templates assume of a calling repo — breaking any of these breaks eve
 
 - `mvnw` + `pom.xml` at the root; a Spotless-configured build (`spotless:check` is the whole lint job)
 - Test reports at `**/target/*-reports/TEST-*.xml`
-- Optional root `.trivyignore`, honored by the image scan in `docker.yml`
+- Optional root `.trivyignore`, honored by the image scan in `java-docker.yml`
 - For GitOps: a manifest at `gitops-manifest-path` containing an `image: ghcr.io/<owner>/<repo>:...` line (updated by `sed`)
-- No tracked `*.env` files except `.env.example` — `build.yml` fails the build on any other
+- No tracked `*.env` files except `.env.example` — `java-build.yml` fails the build on any other
 - The caller must grant every permission the pipeline needs; a missing `id-token: write` silently breaks keyless signing
 
 | Workflow | Purpose |
 |---|---|
-| `build.yml` | `mvnw clean test-compile`, reject tracked `.env` |
-| `lint.yml` | `mvnw spotless:check` |
-| `unit-tests.yml` | `mvnw test` + JUnit report |
-| `integration-tests.yml` | `mvnw verify -Dsurefire.skip=true` + curated `extra-secrets` |
-| `security.yml` | CodeQL (`java-kotlin`, manual build) · Gitleaks · Trivy fs scan |
-| `dependency-graph.yml` | Submit the Maven dependency graph (push only) |
+| `java-build.yml` | `mvnw clean test-compile`, reject tracked `.env` |
+| `java-lint.yml` | `mvnw spotless:check` |
+| `java-unit-tests.yml` | `mvnw test` + JUnit report |
+| `java-integration-tests.yml` | `mvnw verify -Dsurefire.skip=true` + curated `extra-secrets` |
+| `java-security.yml` | CodeQL (`java-kotlin`, manual build) · Gitleaks · Trivy fs scan |
+| `java-dependency-graph.yml` | Submit the Maven dependency graph (push only) |
 | `tag.yml` | Tag PR builds `pr-<n>-run-<run>`, keep 4 newest per PR |
-| `docker.yml` | Paketo buildpack image → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
+| `java-docker.yml` | Paketo buildpack image → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
 | `deploy-gitops.yml` | `cosign verify`, then bump the manifest tag and commit `[skip ci]` |
+
+For the **Python** pipeline the first four assumptions become: `requirements.txt` at the root (must exist — it keys the pip cache), a `requirements-dev.txt` providing `pytest` + `ruff`, tests split by a registered `integration` pytest marker, and no Dockerfile (the Paketo builder must be able to detect the app). Test reports land at `reports/TEST-*.xml`. The `.env`, `.trivyignore` and GitOps-manifest rules are unchanged.
+
+| Workflow | Purpose |
+|---|---|
+| `python-build.yml` | `python -m compileall`, reject tracked `.env` |
+| `python-lint.yml` | `ruff check` + `ruff format --check` |
+| `python-unit-tests.yml` | `pytest -m "not integration"` + JUnit report |
+| `python-integration-tests.yml` | `pytest -m integration` + curated `extra-secrets`; exit code 5 is a pass |
+| `python-security.yml` | CodeQL (`python`, build-mode `none`) · Gitleaks · Trivy fs |
+| `python-dependency-graph.yml` | Submit the pip dependency graph (push only) |
+| `python-docker.yml` | `pack build` → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
 
 Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (pushed, signed, attested, promoted).
 
 ## Releasing These Templates
 
 - `auto-release.yml` runs on every push to `main`: patch-bump semver tag, GitHub release with generated notes, delete all but the 10 newest releases. There is no manual release step.
-- Consumers pin `@<sha>`, not a tag — so a change is only live for them once they bump. Old pins keep working, which is why input renames are breaking.
+- Consumers pin `@<sha>`, not a tag — so a change is only live for them once they bump. Old pins keep working, which is why input renames are breaking. One release covers both pipelines; there is no per-language versioning.
 - Commits follow `type(scope): subject`; history is PR merges only, no direct pushes to `main`.
+- **Renaming a workflow file is a breaking change for consumers, and a silent one.** Unlike an input rename (which fails with "invalid input"), a moved entry point fails with "workflow was not found" only once the consumer bumps their pin. The `master-maven-pipeline.yml` → `master-java-pipeline.yml` + `java-*` leaf rename is exactly this; `tag.yml` and `deploy-gitops.yml` were left alone because both trees share them.
 
 ## Development Notes
 
 ### Workflow Style
 - Match the existing shape: `on: workflow_call` → inputs (egress trio first, then `java-version`/`cache-type`, then behavior) → `secrets` with a `description` explaining the fallback → one job with `name`, `runs-on: ubuntu-latest`, `timeout-minutes`, `permissions`.
 - `timeout-minutes` on **every** job (5 for gates/tagging, 10–15 for builds, 30 for CodeQL).
-- Maven is always `./mvnw -B -ntp -T 1C ...`, preceded by `chmod +x mvnw`.
+- Maven is always `./mvnw -B -ntp -T 1C ...`, preceded by `chmod +x mvnw`. Python leaves have no wrapper step — `python-setup` leaves `pytest`/`ruff` on `PATH`, so the run line is just `pytest …` / `ruff check .`.
 - Image/packaging runs skip the quality plugins the dedicated jobs already cover: `-Dmaven.test.skip -Denforcer.skip -Dspotless.check.skip -Djacoco.skip -Dcheckstyle.skip`.
 - Shell idioms to reuse rather than reinvent: `set -euo pipefail`, lowercase repo via `tr '[:upper:]' '[:lower:]'`, 7-char SHA via `cut -c1-7`, `# shellcheck disable=SC2086` where word-splitting an args string is intentional, `::error::`/`::warning::` for annotations.
 - Comments explain **why** a structure exists (why a gate runs first, why a job isn't nested). Keep them; they're the reason this repo is auditable.
@@ -184,6 +230,8 @@ Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (push
 - Never add a step above `harden-runner`, and never above the `cosign verify` gate in `deploy-gitops.yml`
 - Never set `persist-credentials: true` (or add a `token:`) on a checkout in a job that doesn't push
 - Never pass `toJSON(secrets)` into `extra-secrets`; prefer Testcontainers so tests need no secrets at all
+- Never fork a `python-tag.yml` or `python-deploy-gitops.yml` — those two are language-agnostic and shared by both entry points on purpose
+- Never add an input to a leaf just to restore symmetry between the two trees; `python-security.yml` takes no `python-version` because nothing in it runs an interpreter
 - Never widen an allowlist by switching a phase to `audit` as the fix — add the specific host
 - Run `actionlint` **and** `yamllint --strict .` before committing; run `zizmor` before pushing any workflow change
 - Update `README.md` in the same commit as any input, permission, or behavior change — it is the consumer's only contract

@@ -1,0 +1,90 @@
+name: Java Release
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      egress-policy:
+        required: false
+        type: string
+        default: "block"
+      extra-docker-endpoints:
+        description: Extra endpoints appended to the docker-publish allowlist
+        required: false
+        type: string
+        default: ""
+      spring-boot-args:
+        required: false
+        type: string
+        default: ""
+      gitops-manifest-path:
+        required: false
+        type: string
+        default: "k8s/api.yaml"
+      extra-gitops-endpoints:
+        description: Extra endpoints appended to the deploy-gitops base allowlist
+        required: false
+        type: string
+        default: ""
+      signer-identity-regexp:
+        description: >
+          Regexp the published image's keyless Cosign signature must match for
+          deploy-gitops to promote it. Empty defaults to a workflow file under the
+          current repository owner. Pin it to the exact signing-workflow path for
+          a tighter trust boundary, or set it when the signing reusable workflow
+          lives in a different org than the consuming repo.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      CR_PAT:
+        required: false
+      GITOPS_PAT:
+        required: false
+
+jobs:
+  tag:
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/tag.yml
+    permissions:
+      contents: write
+
+  docker-publish:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/java-docker.yml
+    secrets:
+      CR_PAT: ${{ secrets.CR_PAT }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    with:
+      java-version: ${{ inputs.java-version }}
+      cache-type: ${{ inputs.cache-type }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-docker-endpoints }}
+      spring-boot-args: ${{ inputs.spring-boot-args }}
+
+  deploy-gitops:
+    needs: docker-publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-gitops.yml
+    permissions:
+      contents: write
+      packages: read
+    secrets:
+      GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+      CR_PAT: ${{ secrets.CR_PAT }}
+    with:
+      manifest-path: ${{ inputs.gitops-manifest-path }}
+      egress-policy: ${{ inputs.egress-policy }}
+      extra-allowed-endpoints: ${{ inputs.extra-gitops-endpoints }}
+      image-digest: ${{ needs.docker-publish.outputs.image-digest }}
+      signer-identity-regexp: ${{ inputs.signer-identity-regexp }}

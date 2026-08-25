@@ -1,4 +1,4 @@
-name: Dependency Graph Module
+name: Python Build Module
 
 on:
   workflow_call:
@@ -14,35 +14,42 @@ on:
         type: string
         default: >
           github.com:443
-          repo.maven.apache.org:443
-          repo1.maven.org:443
           api.github.com:443
-          repo.spring.io:443
-          repository.jboss.org:443
+          pypi.org:443
+          files.pythonhosted.org:443
           objects.githubusercontent.com:443
           release-assets.githubusercontent.com:443
           github-releases.githubusercontent.com:443
+          raw.githubusercontent.com:443
       extra-allowed-endpoints:
         description: Extra endpoints appended to allowed-endpoints (base list stays intact)
         required: false
         type: string
         default: ""
-      java-version:
+      python-version:
         required: false
         type: string
-        default: "25"
+        default: "3.14"
       cache-type:
         required: false
         type: string
-        default: "maven"
+        default: "pip"
+      requirements:
+        required: false
+        type: string
+        default: "requirements.txt"
+      dev-requirements:
+        required: false
+        type: string
+        default: "requirements-dev.txt"
 
 jobs:
-  dependency-graph:
-    name: Submit Dependency Graph
+  build:
+    name: Build & Compile
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Harden Runner
@@ -59,14 +66,27 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
+      - name: Reject .env file
+        run: |
+          ENV_FILES=$(git ls-files --cached -- '*.env*' ':!:.env.example' || true)
+          if [ -n "$ENV_FILES" ]; then
+            echo "::error::Tracked .env files detected – remove them before merging:"
+            echo "$ENV_FILES"
+            exit 1
+          fi
+
+      - name: Setup Python Environment
+        uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@6f6e9d0ff799606a83ba2086a82e6e5954ba86a6
         with:
-          java-version: ${{ inputs.java-version }}
+          python-version: ${{ inputs.python-version }}
           cache-type: ${{ inputs.cache-type }}
+          requirements: ${{ inputs.requirements }}
+          dev-requirements: ${{ inputs.dev-requirements }}
 
-      - name: Make Maven wrappers executable
-        run: chmod +x mvnw
-
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@b275d12641ac2d2108b2cbb7598b154ad2f2cee8
+      - name: Byte-compile sources
+        run: |
+          set -euo pipefail
+          # The Python analogue of Maven's test-compile: the output is discarded,
+          # it exists to fail fast on a syntax error before the serial verify phase.
+          python -m compileall -q -f \
+            -x '(^|/)(\.git|\.venv|venv|\.tox|node_modules|build|dist)(/|$)' .

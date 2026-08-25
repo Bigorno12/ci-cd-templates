@@ -22,7 +22,7 @@ Fix what is mechanical and re-run until green:
 
 - **shellcheck findings** → quote the expansion, add `set -euo pipefail`, or — where
   word-splitting an args string is the intent — `# shellcheck disable=SC2086` with the
-  existing pattern (`$SPRING_BOOT_ARGS`, `$TEST_ARGS`).
+  existing pattern (`$SPRING_BOOT_ARGS`, `$TEST_ARGS`, `$PACK_ARGS`, `$PUBLISH_FLAG`).
 - **`zizmor: unpinned action`** → pin to a full commit SHA, never a tag.
 - **`zizmor: template injection`** → move the `${{ … }}` out of the `run:` body into an
   `env:` binding and reference `"$VAR"`.
@@ -36,11 +36,12 @@ Stop and ask when a fix is a design decision rather than a repair:
 
 - A `# zizmor: ignore[rule]` is a design decision. It needs a real guard plus a comment
   explaining why the sink is closed — see `java-setup` rejecting multi-line `maven-opts`, and
-  `integration-tests.yml` filtering `github_token` with a random heredoc delimiter. Don't add
-  one to silence a finding you haven't closed.
-- An input that has to be threaded through a leaf, its grouping layer, **and**
-  `master-maven-pipeline.yml` is a public-API change: it breaks consumers still on an older
-  pin with "invalid input".
+  both `java-integration-tests.yml` leaves filtering `github_token` with a random heredoc
+  delimiter. Don't add one to silence a finding you haven't closed. `python-setup` shows the
+  better move: it writes nothing to `$GITHUB_ENV`, so it needs no ignore at all.
+- An input that has to be threaded through a leaf, its grouping layer, **and** that
+  language's master pipeline (`master-java-pipeline.yml` or `master-python-pipeline.yml`)
+  is a public-API change: it breaks consumers still on an older pin with "invalid input".
 - Never make an egress denial go away by flipping a phase to `audit` — add the specific
   host to that leaf's `allowed-endpoints` default.
 
@@ -51,8 +52,14 @@ Notes:
 - Both hooks degrade to a warning when a tool is missing (`brew install gitleaks actionlint
   yamllint`), so a clean local run can still be a run that checked nothing. Verify the tools
   are actually present.
-- If you edited `.github/actions/*/action.yml`, the linters passing is not enough: the 8
-  SHA-pinned self-references still point at the old commit until a follow-up bump.
+- If you edited `.github/actions/*/action.yml`, the linters passing is not enough: the 13
+  SHA-pinned self-references (8 `java-setup`, 5 `python-setup`) still point at the old commit
+  until a follow-up bump. A **green gate cannot see a dangling pin** either — a pin whose
+  commit does not contain the action at all still lints fine and fails at runtime with
+  "action not found". Check it directly:
+  ```sh
+  git cat-file -e <pinned-sha>:.github/actions/python-setup/action.yml
+  ```
 - `plantuml -checkonly docs/*.puml docs/c4/*.puml` if you touched a diagram (needs no
   Graphviz).
 - Do not commit or push; leave that to the human.

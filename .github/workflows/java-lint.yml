@@ -1,0 +1,71 @@
+name: Java Linting Module
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        required: false
+        type: string
+        default: "25"
+      cache-type:
+        required: false
+        type: string
+        default: "maven"
+      egress-policy:
+        description: Harden runner policy (audit or block)
+        required: false
+        type: string
+        default: "block"
+      allowed-endpoints:
+        description: Allowed endpoints when policy is block
+        required: false
+        type: string
+        default: >
+          github.com:443
+          repo.maven.apache.org:443
+          repo1.maven.org:443
+          api.github.com:443
+          repo.spring.io:443
+          repository.jboss.org:443
+          objects.githubusercontent.com:443
+          release-assets.githubusercontent.com:443
+          github-releases.githubusercontent.com:443
+      extra-allowed-endpoints:
+        description: Extra endpoints appended to allowed-endpoints (base list stays intact)
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  spotless-check:
+    name: Code Formatting (Spotless & Ktlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: ${{ inputs.egress-policy }}
+          disable-sudo: true
+          allowed-endpoints: >
+            ${{ inputs.allowed-endpoints }}
+            ${{ inputs.extra-allowed-endpoints }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java Environment
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@042275df166955addd19cdb9d020b16fce82738c
+        with:
+          java-version: ${{ inputs.java-version }}
+          cache-type: ${{ inputs.cache-type }}
+
+      - name: Make Maven wrappers executable
+        run: chmod +x mvnw
+
+      - name: Verify Code Formatting (Maven)
+        run: ./mvnw -B -ntp spotless:check
