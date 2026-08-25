@@ -44,6 +44,4 @@ runs:
           echo "::error::maven-opts must be a single line"
           exit 1
         fi
-        # Multi-line values are rejected above and the expansion is quoted, so this
-        # write cannot inject additional variables.
         printf 'MAVEN_OPTS=%s\n' "$MAVEN_OPTS_INPUT" >> "$GITHUB_ENV"

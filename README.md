@@ -2,6 +2,40 @@
 
 Reusable GitHub Actions CI/CD templates for Java (Maven + Spring Boot) and Python (pip + pytest) projects. Consuming repos call these workflows instead of duplicating pipeline logic. Every job runs behind `step-security/harden-runner` with a configurable egress policy and `disable-sudo: true`, third-party actions are pinned to commit SHAs, checkouts use `persist-credentials: false` unless the job genuinely pushes, and per-job `permissions` are scoped to least privilege.
 
+## Status
+
+| Pipeline | Status |
+|---|---|
+| **Java** (`master-java-pipeline.yml`) | ✅ **Fully tested.** Runs in production against a real consumer (`Bigorno12/monolith-architecture`); every egress allowlist below was derived from observed harden-runner denials. |
+| **Python** (`master-python-pipeline.yml`) | ⚠️ **Not yet validated end-to-end.** The workflows lint clean (`actionlint`, `yamllint`, `zizmor`, `gitleaks`) and the call graph resolves, but **no Python pipeline has completed a real run.** Treat it as a reviewed draft, not a proven path. |
+
+**What "not yet validated" means concretely.** Linting proves structure, not behaviour — none
+of these can be confirmed without a runner:
+
+- **The egress allowlists are reasoned, not observed.** The Java lists were built by reading
+  real harden-runner denial summaries. The Python ones were written from documentation, so
+  `pypi.org`, `files.pythonhosted.org`, the four Docker Hub hosts and especially
+  `deps.paketo.io` are *predictions*. A missing host fails closed and blocks the job; a host
+  that is never reached is dead weight in the allowlist.
+- **The Paketo `pack build` path is unproven** — including whether the digest read-back via
+  `docker buildx imagetools inspect` behaves as expected, since `pack --publish` leaves
+  nothing in the local daemon.
+- **`test-services`, the CodeQL `build-mode: none` job, and the pip dependency submission**
+  have never executed.
+
+**How to run it safely today.** Start with `build-egress-policy: "audit"` and
+`release-egress-policy: "audit"`. Audit mode reports what a job reached instead of blocking
+it, so the first run's harden-runner summary tells you exactly which HTTPS endpoints the
+pipeline actually needs. Move to `"block"` once the summary is clean and you have fed any
+missing host into the matching `extra-*-endpoints` input.
+
+**Planned:** two throwaway reference consumers — a Django project and a FastAPI project — to
+exercise `master-python-pipeline.yml` end to end and turn each list above from a prediction
+into an observation. Until those exist and pass, the Python tree carries the warning above.
+The frameworks were chosen deliberately: Django exercises the database path
+(`postgres-image`, migrations, `pytest-django`) and FastAPI the minimal ASGI path, and the
+two together cover both `Procfile` shapes (`gunicorn ... wsgi` and `uvicorn`).
+
 ## Usage
 
 Pick the entry point for your language — `master-java-pipeline.yml` or
@@ -51,20 +85,14 @@ Pin `@<sha>` to a template commit that includes the folded verification gate and
 an older pin fails with "invalid input". Individual workflows can also be called
 on their own via `workflow_call`.
 
-> **Renamed:** `master-maven-pipeline.yml` is now **`master-java-pipeline.yml`**, and every
-> Maven leaf carries a `java-` prefix (`build.yml` → `java-build.yml`, and so on) to sit
-> symmetrically beside the `python-` tree. Your existing pin keeps working — it points at a
-> commit where the old path still exists — but **the next time you bump the SHA you must
-> update the path too**, or the caller fails with "workflow was not found". Inputs, secrets
-> and behaviour are unchanged; this is a path rename only.
->
-> `tag.yml` and `deploy-gitops.yml` were deliberately *not* renamed: both pipelines share
-> them, so they are not Java-specific.
-
 ### Python
 
 `master-python-pipeline.yml` is the same pipeline with the Java leaves swapped for
-pip/pytest/ruff/pack. The permissions block above is unchanged — only the `with:` differs:
+pip/pytest/ruff/pack. The permissions block above is unchanged — only the `with:` differs.
+
+⚠️ Read [Status](#status) first: this pipeline has not completed a real run. The snippet
+below starts both phases in `"audit"` deliberately — switch to `"block"` once a run has
+confirmed the allowlists.
 
 ```yaml
 jobs:
@@ -76,10 +104,12 @@ jobs:
       cache-type: "pip"
       requirements: "requirements.txt"
       dev-requirements: "requirements-dev.txt"   # must provide pytest + ruff
-      build-egress-policy: "block"
-      release-egress-policy: "block"   # drop to "audit" while tuning buildpack egress
+      build-egress-policy: "audit"     # see Status — start here, tighten to "block"
+      release-egress-policy: "audit"   # buildpack egress is unverified
       pack-args: "--env BP_PIP_VERSION=latest"
       test-args: "-k not_slow"
+      postgres-image: "postgres:17-alpine"   # omit for a SQLite/no-DB suite
+      redis-image: ""                        # omit unless your tests need Redis
       gitops-manifest-path: "infra/k8s/manifest/api.yaml"
       signer-identity-regexp: "^https://github.com/Bigorno12/ci-cd-templates/"
 ```
@@ -115,6 +145,57 @@ For the **Python** pipeline, substitute the first three:
 - `python-docker.yml` needs no Dockerfile: `pack build` uses the Paketo builder named by
   `builder-image`. Your app must be something that builder can detect (a `requirements.txt`
   plus an entrypoint it recognises).
+
+#### Django and FastAPI
+
+Everything in this subsection is derived from the Paketo buildpack sources and the framework
+docs, **not** from a green pipeline run — see [Status](#status). The two reference projects
+planned there exist precisely to prove or disprove it. The point that bites hardest is
+silent:
+
+**A `Procfile` is mandatory for any web app.** Paketo's `python-start` buildpack sets the
+default process to a bare `python` REPL — not gunicorn, not uvicorn. Without one, the image
+builds, scans, signs, gets attested and is promoted by `deploy-gitops`, and then serves
+nothing. No gate in this pipeline can detect that, so `python-docker.yml` emits a build
+warning when it finds neither a `Procfile` nor a `project.toml` process type.
+
+```
+# Django — add gunicorn to requirements.txt
+web: gunicorn myproject.wsgi --bind :$PORT
+
+# FastAPI — add uvicorn to requirements.txt
+web: uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+**FastAPI** needs nothing else: `pytest` + `ruff` in `requirements-dev.txt`, the
+`integration` marker registered, and the Procfile above. It has no framework-level database
+requirement — a `TestClient` suite over SQLite or fakes needs no container at all, so leave
+`postgres-image` empty unless your own integration tests genuinely talk to Postgres.
+
+**Django** additionally needs:
+
+- **`pytest-django`** in `requirements-dev.txt` and `DJANGO_SETTINGS_MODULE` set in your
+  `pyproject.toml`/`pytest.ini`. Plain `pytest` on a Django project raises
+  `ImproperlyConfigured`. If your suite runs under `manage.py test` (unittest) rather than
+  pytest, these leaves will not run it — pytest collects nothing and exits 5, which the unit
+  job treats as a failure. That is deliberate: a test job that silently runs zero tests is
+  worse than one that fails.
+- **A database — only if your settings point at one.** Django's test runner always creates
+  a test database, but with the `sqlite3` backend that is in-memory and needs no container.
+  Set `postgres-image` only when your test settings actually target Postgres (worth doing if
+  you rely on `JSONField`, `ArrayField` or database constraints, which behave differently on
+  SQLite). It applies to the **unit** job as well as integration, because Django builds that
+  test database whatever the tests touch.
+
+  When set, the container is bound to `127.0.0.1` with a password generated per run and
+  masked in the logs, and the job gets `DATABASE_URL` plus the individual `POSTGRES_*`
+  variables. When empty **nothing is exported at all**, so a `os.environ.get("DATABASE_URL",
+  <sqlite fallback>)` in your settings still returns your fallback.
+- **`psycopg2-binary`, not `psycopg2`.** The default `builder-jammy-base` ships Python
+  *without common C libraries*, so the non-binary package cannot compile. The alternative is
+  `builder-image: "paketobuildpacks/builder-jammy-full"`.
+- **Migrations and `collectstatic` are not run** by the buildpack. Handle static files with
+  WhiteNoise, and run migrations from your Procfile or as a deploy step.
 
 ## Pipeline
 
@@ -201,7 +282,7 @@ The Python tree mirrors it file-for-file, minus the two it shares:
 | `python-dependency-graph.yml` | Submit the pip dependency graph (push events only) |
 | `python-lint.yml` | `ruff check` + `ruff format --check` |
 | `python-unit-tests.yml` | `pytest -m "not integration"` + JUnit reports |
-| `python-integration-tests.yml` | `pytest -m integration` (curated secrets via `extra-secrets`) |
+| `python-integration-tests.yml` | `pytest -m integration`; optional Postgres/Redis via `postgres-image`/`redis-image`, curated secrets via `extra-secrets` |
 | `python-security.yml` | CodeQL (`python`, `build-mode: none`) + Gitleaks + Trivy fs scan |
 | `python-docker.yml` | `pack build` → GHCR; Trivy scan, SBOM, Cosign signature + attestation |
 | `tag.yml` · `deploy-gitops.yml` | **Shared with the Java pipeline — not duplicated** |
@@ -277,6 +358,7 @@ end-to-end without following indirection.
 
 - `.github/actions/java-setup` — installs Temurin JDK, configures Maven cache, sets `MAVEN_OPTS` (rejects multi-line values so nothing extra can be injected into `GITHUB_ENV`).
 - `.github/actions/python-setup` — installs CPython, configures the pip cache (keyed on both requirements files), and installs them. Unlike `java-setup` it writes nothing to `GITHUB_ENV`.
+- `.github/actions/test-services` — starts the optional Postgres/Redis containers the test leaves expose via `postgres-image`/`redis-image` and waits on each container's own health check. Credentials are generated per run and masked, ports are bound to `127.0.0.1` rather than `0.0.0.0`, and the connection variables are exported **only** for services that actually started. Uses `docker run` behind a step `if:` rather than a job-level `services:` block, because a service container's image cannot be conditionally omitted and a reusable workflow cannot accept one from its caller.
 - `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry).
 - `.github/actions/cache-cleanup` — deletes Actions caches outside the retention policy: anything not on `keep-ref` (PR/feature branches) plus `keep-ref` caches older than `retention-days`. Not wired into the master pipeline; call it from your own scheduled workflow with a token that has `actions: write`.
 
@@ -323,18 +405,13 @@ and still reports success.
 weekly, with a cooldown before a fresh release is proposed. Because every `uses:`
 is SHA-pinned, these PRs are how pins get advanced.
 
-**Editing a composite action is a two-commit change.** The three actions under
+**Editing a composite action is a two-commit change.** The five actions under
 `.github/actions/` are consumed by SHA-pinned *self-reference*
 (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`), because inside a reusable
 workflow a relative action path resolves against the caller's checkout rather than this
 repo. Merge the action change first, then a second commit bumping every pin — until then
-the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 13 call sites
-(8 `java-setup`, 5 `python-setup`).
-
-> **`python-setup` is brand new, so its 5 pins point at a commit that does not contain it
-> yet.** They currently carry the same SHA as the `java-setup` pins, which predates the
-> action. Merge this branch first, then bump those 5 pins to the merge commit — until that
-> second commit lands, every Python job fails at the setup step with "action not found".
+the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 16 call sites
+(7 `java-setup`, 5 `python-setup`, 2 `ghcr-cleanup`, 2 `test-services`).
 
 ### Further reading
 

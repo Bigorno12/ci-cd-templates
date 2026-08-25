@@ -11,6 +11,10 @@ workflow it describes at the top; when that workflow changes, the diagram is wha
 > images appear — nothing else to fix. To preview before merging, see
 > [Rendering notes](#rendering-notes).
 
+> **Maturity:** the Java tree is fully tested in production; the **Python tree has never
+> completed a real run**, so every diagram below describing it is a design record rather than
+> observed behaviour — the egress lists especially. See [README → Status](README.md#status).
+
 #### Pipeline — Java (logical architecture)
 ![Java pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline-java.puml)
 
@@ -58,7 +62,7 @@ release on every green merge to `main` (keeping the 10 newest), but pins are wha
 actually track.
 
 Internally, workflows reference each other by local path (`./.github/workflows/java-lint.yml`,
-effective on the same commit) while the four composite actions under
+effective on the same commit) while the five composite actions under
 [`.github/actions/`](.github/actions/) are referenced by **SHA-pinned self-reference**
 (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 8 call sites;
 `python-setup@<sha>`, 5) — so editing an action does nothing until a second commit bumps

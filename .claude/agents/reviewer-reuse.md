@@ -32,6 +32,9 @@ second copy of a *pipeline mechanism*, not a second copy of a Java class.
 - **The language-agnostic release tail** → `tag.yml` and `deploy-gitops.yml` are called by
   **both** master pipelines. Flag any `python-tag.yml` / `python-deploy-gitops.yml`, or any
   new leaf that re-implements PR tagging or manifest bumping for a second language.
+- **Test service containers** → `.github/actions/test-services` (Postgres/Redis via
+  `postgres-image`/`redis-image`, with a health-poll wait). A hand-rolled `docker run` +
+  `sleep`, or a job-level `services:` block added to a leaf, both duplicate it.
 - **GHCR image retention** → `.github/actions/ghcr-cleanup` (keeps 3 most recent, retries
   once after 60s). A hand-rolled `gh api ... DELETE` loop over package versions.
 - **Actions cache retention** → `.github/actions/cache-cleanup` (non-`keep-ref` caches +

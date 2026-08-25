@@ -60,6 +60,15 @@ cache misses, or re-downloads** — not CPU.
 - `pack build` without `--publish` on a push event (builds into the local daemon, then the
   digest resolve fails), or a builder image re-pulled when `--pull-policy` could avoid it.
 
+**Test service containers**
+- `test-services` runs *before* `python-setup` on purpose: a database that cannot start
+  should fail the job in seconds, not after a full pip install. Don't reorder it for
+  "parallelism" — nothing overlaps here.
+- A fixed `sleep` in place of the health-status poll is flaky on a slow runner and wasted
+  time on a fast one.
+- Requesting `postgres-image` for a suite that never touches a database is pure cost — a
+  Django SQLite suite does not need one, and FastAPI usually does not either.
+
 **Checkout and git**
 - `fetch-depth: 0` where the default `1` suffices. Full history is needed only for the
   gitleaks history scan, `tag.yml`, and `auto-release.yml`; anywhere else it's a full

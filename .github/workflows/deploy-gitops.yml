@@ -79,9 +79,6 @@ jobs:
             ${{ inputs.allowed-endpoints }}
             ${{ inputs.extra-allowed-endpoints }}
 
-      # Everything below the verification gate mutates the repository, so the
-      # gate runs first: no checkout, no commit, no push happens until cosign
-      # has accepted the digest.
       - name: Login to Github Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -104,8 +101,6 @@ jobs:
           fi
 
           if [ -z "$IDENTITY_REGEXP" ]; then
-            # Default: require a workflow file under the repo owner, not just any
-            # identity. Set signer-identity-regexp to pin the exact signing workflow.
             IDENTITY_REGEXP="^https://github\.com/${OWNER}/[^/]+/\.github/workflows/"
           fi
 

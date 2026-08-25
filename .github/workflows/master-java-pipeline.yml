@@ -190,8 +190,6 @@ jobs:
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
-          # "skipped" is not a failure: dependency-graph is push-only, and the
-          # release phase skips jobs depending on the event.
           RESULTS=("$BUILD" "$DEPGRAPH" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do

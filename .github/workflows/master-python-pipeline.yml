@@ -24,6 +24,27 @@ on:
         required: false
         type: string
         default: "requirements-dev.txt"
+      postgres-image:
+        description: >
+          Postgres service container for the unit + integration test jobs, e.g.
+          "postgres:17-alpine". Empty (the default) starts nothing — right for a SQLite
+          or no-database suite, and nothing is exported into the test environment, so
+          your own settings fallback is untouched. When set, the container is bound to
+          127.0.0.1 with a password generated per run and masked in the logs, and the
+          jobs get DATABASE_URL plus the individual POSTGRES_* variables. A Django suite
+          configured against Postgres needs this for the unit job too — its test runner
+          creates a database regardless of what the tests touch.
+        required: false
+        type: string
+        default: ""
+      redis-image:
+        description: >
+          Redis service container for the unit + integration test jobs, e.g.
+          "redis:7-alpine". Empty starts no cache. Same shape as postgres-image:
+          loopback-bound, per-run requirepass, exported as REDIS_URL / REDIS_*.
+        required: false
+        type: string
+        default: ""
       build-egress-policy:
         description: >
           Harden-runner policy for the build + verify (test/security) phases.
@@ -160,6 +181,8 @@ jobs:
       cache-type: ${{ inputs.cache-type }}
       requirements: ${{ inputs.requirements }}
       dev-requirements: ${{ inputs.dev-requirements }}
+      postgres-image: ${{ inputs.postgres-image }}
+      redis-image: ${{ inputs.redis-image }}
       egress-policy: ${{ inputs.build-egress-policy }}
       extra-test-endpoints: ${{ inputs.extra-test-endpoints }}
       extra-security-endpoints: ${{ inputs.extra-security-endpoints }}
@@ -213,8 +236,6 @@ jobs:
           VERIFY: ${{ needs.verify.result }}
           RELEASE: ${{ needs.release.result }}
         run: |
-          # "skipped" is not a failure: dependency-graph is push-only, and the
-          # release phase skips jobs depending on the event.
           RESULTS=("$BUILD" "$DEPGRAPH" "$VERIFY" "$RELEASE")
 
           for result in "${RESULTS[@]}"; do

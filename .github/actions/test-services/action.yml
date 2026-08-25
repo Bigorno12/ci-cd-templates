@@ -1,0 +1,117 @@
+name: Start Test Service Containers
+description: >
+  Starts the optional Postgres/Redis containers a Django or FastAPI test suite needs, waits
+  for each to report healthy, and exports their connection details. Both image inputs
+  default to empty, which starts nothing and exports nothing.
+
+inputs:
+  postgres-image:
+    description: >
+      Postgres image to run, e.g. "postgres:17-alpine". Empty starts no database.
+    required: false
+    default: ""
+  redis-image:
+    description: >
+      Redis image to run, e.g. "redis:7-alpine". Empty starts no cache.
+    required: false
+    default: ""
+  ready-timeout-seconds:
+    description: How long to wait for every started container to report healthy
+    required: false
+    default: "60"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Start test services
+      shell: bash
+      env:
+        POSTGRES_IMAGE: ${{ inputs.postgres-image }}
+        REDIS_IMAGE: ${{ inputs.redis-image }}
+        READY_TIMEOUT: ${{ inputs.ready-timeout-seconds }}
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+
+        STARTED=()
+        ENV_LINES=()
+
+        if [ -n "$POSTGRES_IMAGE" ]; then
+          PG_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$PG_PASSWORD"
+
+          echo "Starting Postgres: $POSTGRES_IMAGE"
+          docker run -d --name ci-postgres \
+            -e POSTGRES_USER=ci \
+            -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+            -e POSTGRES_DB=ci \
+            -p 127.0.0.1:5432:5432 \
+            --health-cmd="pg_isready -U ci -d ci" \
+            --health-interval=5s \
+            --health-timeout=5s \
+            --health-retries=12 \
+            "$POSTGRES_IMAGE"
+
+          STARTED+=(ci-postgres)
+          ENV_LINES+=(
+            "POSTGRES_HOST=127.0.0.1"
+            "POSTGRES_PORT=5432"
+            "POSTGRES_USER=ci"
+            "POSTGRES_PASSWORD=${PG_PASSWORD}"
+            "POSTGRES_DB=ci"
+            "DATABASE_URL=postgresql://ci:${PG_PASSWORD}@127.0.0.1:5432/ci"
+          )
+        fi
+
+        if [ -n "$REDIS_IMAGE" ]; then
+          REDIS_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$REDIS_PASSWORD"
+
+          echo "Starting Redis: $REDIS_IMAGE"
+          docker run -d --name ci-redis \
+            -p 127.0.0.1:6379:6379 \
+            --health-cmd="redis-cli -a $REDIS_PASSWORD ping" \
+            --health-interval=5s \
+            --health-timeout=5s \
+            --health-retries=12 \
+            "$REDIS_IMAGE" \
+            redis-server --requirepass "$REDIS_PASSWORD"
+
+          STARTED+=(ci-redis)
+          ENV_LINES+=(
+            "REDIS_HOST=127.0.0.1"
+            "REDIS_PORT=6379"
+            "REDIS_PASSWORD=${REDIS_PASSWORD}"
+            "REDIS_URL=redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0"
+          )
+        fi
+
+        if [ ${#STARTED[@]} -eq 0 ]; then
+          echo "No test services requested."
+          exit 0
+        fi
+
+        DEADLINE=$(( SECONDS + READY_TIMEOUT ))
+        for NAME in "${STARTED[@]}"; do
+          while true; do
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$NAME" 2>/dev/null || echo "missing")
+            case "$STATUS" in
+              healthy)
+                echo "$NAME is healthy"
+                break
+                ;;
+              unhealthy|missing)
+                echo "::error::$NAME failed to start (status: $STATUS)"
+                docker logs "$NAME" 2>&1 | tail -50 || true
+                exit 1
+                ;;
+            esac
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::Timed out after ${READY_TIMEOUT}s waiting for $NAME (last status: $STATUS)"
+              docker logs "$NAME" 2>&1 | tail -50 || true
+              exit 1
+            fi
+            sleep 2
+          done
+        done
+
+        echo "Exported connection details for: ${STARTED[*]}"

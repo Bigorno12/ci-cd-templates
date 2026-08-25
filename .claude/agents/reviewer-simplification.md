@@ -63,6 +63,11 @@ Name the simpler form that does the same job.
 - Commented-out steps, an allowlist host added "just in case" with no observed denial,
   a `continue-on-error: true` that makes a step's failure unobservable.
 
+**One exception to the allowlist rule above:** the Java lists were built from observed
+harden-runner denials, but **no Python pipeline has ever run**, so its lists are predictions.
+Do not flag a Python host as unnecessary — you have no evidence either way, and a missing
+host fails the job closed. Flag a *newly added* one only if the diff gives no reason for it.
+
 ## Rules — do not propose changes the design rejects
 
 - **Never** suggest removing or relaxing `harden-runner`, `disable-sudo: true`,

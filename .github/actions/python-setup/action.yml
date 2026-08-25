@@ -32,8 +32,6 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
         cache: ${{ inputs.cache-type }}
-        # Both files key the cache, so adding a dev-only dependency still
-        # invalidates it. Empty lines are ignored by the glob.
         cache-dependency-path: |
           ${{ inputs.requirements }}
           ${{ inputs.dev-requirements }}

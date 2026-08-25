@@ -86,7 +86,5 @@ jobs:
       - name: Byte-compile sources
         run: |
           set -euo pipefail
-          # The Python analogue of Maven's test-compile: the output is discarded,
-          # it exists to fail fast on a syntax error before the serial verify phase.
           python -m compileall -q -f \
             -x '(^|/)(\.git|\.venv|venv|\.tox|node_modules|build|dist)(/|$)' .

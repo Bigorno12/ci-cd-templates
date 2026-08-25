@@ -29,7 +29,6 @@ runs:
         cutoff_epoch=$(date -u -d "-${RETENTION_DAYS} days" +%s)
         deleted=0
 
-        # Page through every cache; -L caps the list, raise it if the repo has more.
         gh cache list --json id,ref,key,createdAt,sizeInBytes -L 1000 \
           | jq -c '.[]' | while read -r entry; do
               id=$(jq -r '.id' <<<"$entry")
@@ -38,11 +37,9 @@ runs:
               created=$(jq -r '.createdAt' <<<"$entry")
               created_epoch=$(date -u -d "$created" +%s)
 
-              # 1) Anything not on the kept ref (PR branches, feature branches).
               if [[ "$ref" != "$KEEP_REF" ]]; then
                 echo "Deleting '$key' (id=$id) — ref '$ref' is not '$KEEP_REF'"
                 gh cache delete "$id" || true
-              # 2) Kept-ref caches that are past the retention window.
               elif (( created_epoch < cutoff_epoch )); then
                 echo "Deleting '$key' (id=$id) on '$ref' — older than ${RETENTION_DAYS}d"
                 gh cache delete "$id" || true

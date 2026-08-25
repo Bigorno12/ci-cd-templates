@@ -12,11 +12,13 @@ Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Jav
 
 **Structure:** GitHub forbids subdirectories under `.github/workflows`, so the workflow files are necessarily flat — the hierarchy lives in `uses:` edges, not in folders.
 - `.github/workflows/` — 24 workflows: 2 entry points (Java, Python), 4 grouping layers, 16 leaf modules, 2 for this repo's own CI. `tag.yml` and `deploy-gitops.yml` are language-agnostic and shared by both entry points rather than duplicated.
-- `.github/actions/` — 4 composite actions (`java-setup`, `python-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
+- `.github/actions/` — 5 composite actions (`java-setup`, `python-setup`, `test-services`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
 - `.githook/` — `pre-commit` (gitleaks) + `pre-push` (actionlint + yamllint), mirroring CI so failures surface before a runner
 - `docs/` — 6 hand-maintained PlantUML diagrams (incl. `docs/c4/`), rendered in [ARCHITECTURE.md](ARCHITECTURE.md) via the PlantUML proxy
 - `.claude/` — agent config: 3 single-focus reviewers, the `/my-command` gate, the workflow rule, and 2 vendored hooks wired by `settings.json`
 - Each leaf workflow is deliberately self-contained: its own `harden-runner` allowlist, its own checkout/JDK preamble, readable end-to-end without following indirection
+
+**Maturity — this is the single most important thing to know before editing.** The Java tree is fully tested and runs in production against `Bigorno12/monolith-architecture`. The Python tree **has never completed a real run.** It lints clean and the call graph resolves, but every behavioural claim about it is reasoned from documentation, not observed: the allowlists (`pypi.org`, `files.pythonhosted.org`, the Docker Hub four, `deps.paketo.io`), the `pack build` + `docker buildx imagetools` digest read-back, `test-services`, the CodeQL `build-mode: none` job, and the pip dependency submission. When Java and Python disagree, the Java behaviour is the evidence-backed one. Planned: throwaway Django + FastAPI reference consumers to exercise the tree end to end — Django for the database/`pytest-django`/migrations path, FastAPI for the minimal ASGI path, jointly covering both `Procfile` shapes. Until they pass, do not describe any Python behaviour as verified, and do not delete an allowlist host on the grounds that it "looks unnecessary" — nothing has proven which are load-bearing.
 
 The Python tree mirrors the Java one file-for-file (`python-*.yml`), with these deliberate asymmetries: `python-security.yml` takes **no** `python-version`/`cache-type` (CodeQL uses `build-mode: none`, nothing there runs an interpreter); `python-docker.yml` drives the `pack` CLI instead of `spring-boot:build-image` and resolves its digest via `docker buildx imagetools` because `pack --publish` leaves nothing in the local daemon; `python-setup` writes nothing to `$GITHUB_ENV`, so it needs no `github-env` ignore.
 
@@ -56,7 +58,8 @@ Don't confuse these with `.claude/hooks/` — a different mechanism (Claude Code
 
 ### Finding what a change touches
 ```sh
-grep -rn "Bigorno12/ci-cd-templates" .github/   # all 13 composite-action pins (8 java-setup, 5 python-setup)
+grep -rn "Bigorno12/ci-cd-templates" .github/   # all 16 composite-action pins
+                                                # 7 java-setup · 5 python-setup · 2 ghcr-cleanup · 2 test-services
 grep -rn "uses: \./" .github/                   # both workflow_call call graphs
 grep -rn "allowed-endpoints" .github/workflows/ # every egress allowlist
 
@@ -106,6 +109,7 @@ master-python-pipeline.yml       the Python entry point
 - `python-security.yml` takes **no** `python-version`/`cache-type`: CodeQL runs `build-mode: none`, so unlike the Java SAST job there is no compile to set an interpreter up for.
 - `python-docker.yml` drives the `pack` CLI instead of `spring-boot:build-image`, and resolves its digest with `docker buildx imagetools inspect` because `pack --publish` leaves nothing in the local daemon.
 - `python-integration-tests.yml` treats pytest exit code 5 ("no tests collected") as a pass — a repo with no `integration`-marked tests is valid. The unit job does not.
+- Both Python test leaves can start optional Postgres/Redis containers via `test-services` (`postgres-image`/`redis-image`, empty = nothing starts *and nothing is exported*). It uses `docker run` behind a step `if:`, not a job-level `services:` block — a service image cannot be conditionally omitted and a caller cannot inject one. The cost of that choice is that the pull happens inside a step, so the four Docker Hub hosts must sit in those two leaves' allowlists; a `services:` block would have been pulled before harden-runner was active.
 
 ### Two reference styles — and why it matters
 - **Workflows** reference each other locally: `uses: ./.github/workflows/java-lint.yml`. Changes take effect on the same commit.
@@ -150,6 +154,7 @@ Adding an input means editing the leaf, the grouping layer, **and** the master p
 | `dev-requirements` | `"requirements-dev.txt"` | Must provide `pytest` and `ruff`. `python-dependency-graph.yml` passes `""` so dev tooling stays out of the shipped graph |
 | `builder-image` | `"paketobuildpacks/builder-jammy-base"` | Deliberately a mutable tag — Paketo republishes it for CVE fixes. Pin a digest for reproducibility |
 | `pack-args` | `""` | Appended to `pack build` (replaces `spring-boot-args`) |
+| `postgres-image` · `redis-image` | `""` | Optional service containers for the **unit and integration** jobs. Empty starts nothing **and exports nothing**, so a consumer's own `DATABASE_URL` fallback is untouched. When set: loopback-bound, per-run generated + masked credentials, exported via `$GITHUB_ENV`. Only needed when the suite genuinely targets Postgres — a Django SQLite suite does not, though it *does* apply to the unit job, since Django's runner builds a test DB regardless |
 
 Secrets are all optional and fall back to `github.token`: `CR_PAT` (GHCR push + cleanup), `GITOPS_PAT` (manifest push), `extra-secrets` (JSON object → env vars for integration tests; `github_token` is filtered out, and `toJSON(secrets)` must never be passed). Both pipelines take the same three.
 
@@ -206,6 +211,8 @@ For the **Python** pipeline the first four assumptions become: `requirements.txt
 | `python-dependency-graph.yml` | Submit the pip dependency graph (push only) |
 | `python-docker.yml` | `pack build` → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
 
+**Django/FastAPI:** a root `Procfile` is mandatory — Paketo's `python-start` sets the default process to a bare `python` REPL, so a web app without one builds, signs, promotes and then serves nothing. `python-docker.yml` warns when it finds neither a `Procfile` nor a `project.toml` process type; that warning is the only signal, so don't suppress it. Django also needs `pytest-django` + `DJANGO_SETTINGS_MODULE` (plain pytest raises `ImproperlyConfigured`), `postgres-image` set (its test runner creates a database even for unit tests), and `psycopg2-binary` — `builder-jammy-base` ships Python without common C libraries, so the non-binary package cannot compile there.
+
 Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (pushed, signed, attested, promoted).
 
 ## Releasing These Templates
@@ -229,8 +236,9 @@ Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (push
 - Never bump a `uses:` SHA by hand as a "fix" — either it's a Dependabot PR, or it's the deliberate second commit after editing a composite action
 - Never add a step above `harden-runner`, and never above the `cosign verify` gate in `deploy-gitops.yml`
 - Never set `persist-credentials: true` (or add a `token:`) on a checkout in a job that doesn't push
-- Never pass `toJSON(secrets)` into `extra-secrets`; prefer Testcontainers so tests need no secrets at all
+- Never pass `toJSON(secrets)` into `extra-secrets`; curate it explicitly. **Java** tests should prefer Testcontainers so they need no secrets at all. **Python** does not use Testcontainers — the leaves take `postgres-image`/`redis-image` and start the container before the suite runs, because Django loads its settings (and so needs `DATABASE_URL`) before any pytest fixture executes, which is exactly when a fixture-managed container does not yet exist
 - Never fork a `python-tag.yml` or `python-deploy-gitops.yml` — those two are language-agnostic and shared by both entry points on purpose
+- Never convert `test-services` to a job-level `services:` block — a service image cannot be conditionally omitted, and a reusable workflow cannot accept one from its caller, so every consumer would pay for a database they may not use
 - Never add an input to a leaf just to restore symmetry between the two trees; `python-security.yml` takes no `python-version` because nothing in it runs an interpreter
 - Never widen an allowlist by switching a phase to `audit` as the fix — add the specific host
 - Run `actionlint` **and** `yamllint --strict .` before committing; run `zizmor` before pushing any workflow change

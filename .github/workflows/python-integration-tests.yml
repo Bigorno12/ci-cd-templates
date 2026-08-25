@@ -15,6 +15,10 @@ on:
         default: >
           github.com:443
           api.github.com:443
+          auth.docker.io:443
+          index.docker.io:443
+          registry-1.docker.io:443
+          production.cloudfront.docker.com:443
           pypi.org:443
           files.pythonhosted.org:443
           objects.githubusercontent.com:443
@@ -42,6 +46,24 @@ on:
         required: false
         type: string
         default: "requirements-dev.txt"
+      postgres-image:
+        description: >
+          Postgres service container for the test run, e.g. "postgres:17-alpine".
+          Empty (the default) starts no database and costs nothing. When set, the
+          container is bound to 127.0.0.1:5432 with a per-run generated password, and
+          DATABASE_URL / POSTGRES_* are exported to the test steps. Nothing is exported
+          when it is empty, so your own fallback config is left alone.
+        required: false
+        type: string
+        default: ""
+      redis-image:
+        description: >
+          Redis service container for the test run, e.g. "redis:7-alpine". Empty starts
+          no cache. When set, bound to 127.0.0.1:6379 behind a per-run generated
+          requirepass, and exported as REDIS_URL / REDIS_*.
+        required: false
+        type: string
+        default: ""
       test-args:
         description: Extra arguments to pass to pytest (e.g. -k or -o options)
         required: false
@@ -52,8 +74,9 @@ on:
         description: >
           Optional JSON object ({"NAME":"value",...}) of secrets to expose as
           environment variables to the integration tests. Pass ONLY the secrets
-          a test genuinely needs against a real external system. Prefer
-          Testcontainers so tests are self-contained and need no secrets at all.
+          a test genuinely needs against a real external system. For a database or
+          cache, use the postgres-image / redis-image inputs instead — they are
+          started by the job, credentialed per run, and need no secret at all.
           Never pass toJSON(secrets) here — curate the object explicitly.
         required: false
 
@@ -79,6 +102,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+
+      - name: Start test services
+        if: inputs.postgres-image != '' || inputs.redis-image != ''
+        uses: Bigorno12/ci-cd-templates/.github/actions/test-services@869e85bd1d671532cd37c469fc14b39e9ba7fde7
+        with:
+          postgres-image: ${{ inputs.postgres-image }}
+          redis-image: ${{ inputs.redis-image }}
 
       - name: Setup Python Environment
         uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@869e85bd1d671532cd37c469fc14b39e9ba7fde7

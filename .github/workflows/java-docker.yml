@@ -158,8 +158,6 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$PUBLISH" != "true" ]; then
-            # Pull-request build: nothing was pushed, so no registry digest exists.
-            # Scan the locally built tag; no signing happens on this path.
             echo "ref=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
             echo "digest=" >> "$GITHUB_OUTPUT"
             exit 0

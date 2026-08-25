@@ -85,8 +85,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # Python needs no build step for CodeQL: build-mode "none" extracts the
-      # sources directly, so there is no compile to set up an interpreter for.
       - name: Initialize CodeQL
         if: steps.code-scanning.outputs.enabled == 'true'
         uses: github/codeql-action/init@18420e3271f74589575af831a523c833acda327f

@@ -46,14 +46,19 @@ Stop and ask when a fix is a design decision rather than a repair:
   host to that leaf's `allowed-endpoints` default.
 
 Notes:
+- **A green gate is not a working pipeline, and for Python that gap is wide.** These four
+  linters check structure, not behaviour, and no Python pipeline has ever completed a real
+  run — the allowlists, the `pack build` path and `test-services` are all unexercised. Never
+  report the Python tree as "working" on the strength of this gate; say the gate is green.
 - The `pre-push` hook path-gates: it skips both linters unless the pushed commits touch
   `.yml`/`.yaml`. Docs-only changes pass without running anything — that is expected, not a
   green gate for a workflow change.
 - Both hooks degrade to a warning when a tool is missing (`brew install gitleaks actionlint
   yamllint`), so a clean local run can still be a run that checked nothing. Verify the tools
   are actually present.
-- If you edited `.github/actions/*/action.yml`, the linters passing is not enough: the 13
-  SHA-pinned self-references (8 `java-setup`, 5 `python-setup`) still point at the old commit
+- If you edited `.github/actions/*/action.yml`, the linters passing is not enough: the 16
+  SHA-pinned self-references (7 `java-setup`, 5 `python-setup`, 2 `ghcr-cleanup`,
+  2 `test-services`) still point at the old commit
   until a follow-up bump. A **green gate cannot see a dangling pin** either — a pin whose
   commit does not contain the action at all still lints fine and fails at runtime with
   "action not found". Check it directly:
