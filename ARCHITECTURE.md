@@ -60,12 +60,17 @@ actually track.
 Internally, workflows reference each other by local path (`./.github/workflows/java-lint.yml`,
 effective on the same commit) while the four composite actions under
 [`.github/actions/`](.github/actions/) are referenced by **SHA-pinned self-reference**
-(`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 8 call sites;
-`python-setup@<sha>`, 5) — so editing an action does nothing until a second commit bumps
-every pin.
+(`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 7 call sites;
+`python-setup@<sha>`, 5; `ghcr-cleanup@<sha>`, 2 — `cache-cleanup` is not wired into the
+master pipeline and has none) — so editing an action does nothing until a second commit
+bumps every pin.
 
 On the consumer side the pipeline publishes `ghcr.io/<owner>/<repo>:main-<sha7>`, signs it
-keylessly, then commits that tag into their k8s manifest for Argo CD to sync. See
+keylessly, then commits that tag into their k8s manifest for Argo CD to sync. Retention on
+that package keeps the 3 most recent **tagged** versions while excluding the `sha256-*`
+referrer tags that `cosign sign`/`attest` publish as siblings — otherwise signatures fill the
+quota and evict the image the manifest just pinned — and a best-effort step prunes referrers
+whose subject image is already gone. See
 [CLAUDE.md → Supply-chain Security](CLAUDE.md#supply-chain-security) and
 [CLAUDE.md → Consumer Contract](CLAUDE.md#consumer-contract).
 

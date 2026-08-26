@@ -32,8 +32,12 @@ second copy of a *pipeline mechanism*, not a second copy of a Java class.
 - **The language-agnostic release tail** → `tag.yml` and `deploy-gitops.yml` are called by
   **both** master pipelines. Flag any `python-tag.yml` / `python-deploy-gitops.yml`, or any
   new leaf that re-implements PR tagging or manifest bumping for a second language.
-- **GHCR image retention** → `.github/actions/ghcr-cleanup` (keeps 3 most recent, retries
-  once after 60s). A hand-rolled `gh api ... DELETE` loop over package versions.
+- **GHCR image retention + cosign referrer pruning** → `.github/actions/ghcr-cleanup`
+  (keeps the 3 most recent *tagged* versions, excluding `sha256-*`; retries once after 60s;
+  then prunes referrer tags whose subject image is gone). A hand-rolled
+  `gh api ... DELETE` loop over package versions duplicates it — and so does a docker leaf
+  adding its own signature cleanup, or re-passing `tag-selection` / `image-tags` at the
+  call site when the action already fixes both.
 - **Actions cache retention** → `.github/actions/cache-cleanup` (non-`keep-ref` caches +
   anything past `retention-days`). A new `gh cache delete` loop.
 - **The egress trio** → every leaf declares `egress-policy`, `allowed-endpoints` (base

@@ -58,7 +58,18 @@ note right of COSIGN
 end note
 D -> COSIGN : cosign attest --type cyclonedx --predicate sbom @digest
 COSIGN -> SIGSTORE : in-toto attestation
-D -> GHCR : ghcr-cleanup — keep 3 most recent (retry once after 60s)
+D -> GHCR : ghcr-cleanup — keep 3 most recent TAGGED (retry once after 60s)
+D -> GHCR : prune sha256-* referrers whose subject digest is gone
+note right of GHCR
+  Retention excludes sha256-* tags
+  (tag-selection: tagged, image-tags: '!sha256-*'):
+  the sign + attest artifacts above are sibling TAGS in
+  this same package, so counting them as "images" filled
+  the quota of 3 and evicted the live image.
+  The prune step then deletes referrer tags orphaned by
+  an evicted subject, plus their untagged child manifests.
+  Best-effort: warns, never fails an already-promoted release.
+end note
 
 D --> G : output image-digest
 

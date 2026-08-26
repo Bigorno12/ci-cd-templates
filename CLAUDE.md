@@ -56,7 +56,7 @@ Don't confuse these with `.claude/hooks/` — a different mechanism (Claude Code
 
 ### Finding what a change touches
 ```sh
-grep -rn "Bigorno12/ci-cd-templates" .github/   # all 13 composite-action pins (8 java-setup, 5 python-setup)
+grep -rn "Bigorno12/ci-cd-templates" .github/   # all 14 composite-action pins (7 java-setup, 5 python-setup, 2 ghcr-cleanup)
 grep -rn "uses: \./" .github/                   # both workflow_call call graphs
 grep -rn "allowed-endpoints" .github/workflows/ # every egress allowlist
 
@@ -109,8 +109,8 @@ master-python-pipeline.yml       the Python entry point
 
 ### Two reference styles — and why it matters
 - **Workflows** reference each other locally: `uses: ./.github/workflows/java-lint.yml`. Changes take effect on the same commit.
-- **Composite actions** use an absolute SHA-pinned self-reference: `uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>` (8 call sites; `python-setup@<sha>`, 5). **Editing `.github/actions/*/action.yml` has no effect until the pins are bumped** — merge the action change, then a second commit bumping every pin to the new SHA.
-- A **new** action makes that worse than inert: the 5 `python-setup` pins currently carry a SHA that predates the action, so they resolve to nothing and every Python job fails with "action not found" until the post-merge bump. `post-workflow-edit.sh` now flags this; `git cat-file -e <sha>:<path>` confirms it.
+- **Composite actions** use an absolute SHA-pinned self-reference: `uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>` (7 call sites; `python-setup@<sha>`, 5; `ghcr-cleanup@<sha>`, 2 — `cache-cleanup` has none, it is not wired into the master pipeline). The three pinned actions do **not** share a SHA. **Editing `.github/actions/*/action.yml` has no effect until the pins are bumped** — merge the action change, then a second commit bumping every pin for *that* action to the new SHA.
+- A **new** action makes that worse than inert — its first pins carry a SHA that predates the action, so they resolve to nothing and every job using them fails with "action not found" until the post-merge bump. `python-setup` went through that and is now bumped (`869e85b`). The live pending case is `ghcr-cleanup`: its 2 pins are stale, not dangling, so both docker leaves silently run the old retention until they are bumped. `post-workflow-edit.sh` flags both; `git cat-file -e <sha>:<path>` tells them apart.
 
 ### Input plumbing
 Every leaf exposes the same egress trio: `egress-policy` (default `"block"`), `allowed-endpoints` (the base allowlist, held as the input's *default* — this is where hosts actually live), and `extra-allowed-endpoints` (appended by the caller; the base stays intact). The master pipeline fans this into phase-scoped inputs.
@@ -125,6 +125,11 @@ Adding an input means editing the leaf, the grouping layer, **and** the master p
 `deploy-gitops.yml`'s **first steps** are GHCR login + `cosign verify`, before any checkout or commit; an empty digest exits 1 rather than promoting an unverified artifact. On PRs nothing is pushed, so `digest` is empty, `ref` is the local tag, and signing is skipped.
 
 `cosign sign` runs *inside this repo's* workflow, so the Sigstore certificate identity (SAN) is always `.../Bigorno12/ci-cd-templates/...` regardless of caller — which is why `signer-identity-regexp` exists and why cross-org consumers must pin it.
+
+### Retention must not count signatures as images
+`cosign sign` and `cosign attest` publish their artifacts as *sibling tags* in the same GHCR package, named `sha256-<subject-digest>` — so one signed release occupies three tagged versions, not one. Retention therefore scopes to tagged versions and excludes that pattern (`tag-selection: tagged`, `image-tags: '!sha256-*'`) in **both** `ghcr-cleanup` attempts: without it, "keep the 3 most recent" filled its quota with signature tags and evicted the live image, leaving the promoted digest unpullable.
+
+Excluding them alone would leak, so a third push-only step prunes the leftovers: it pages the Packages API for every version, treats a `sha256-<digest>` tag whose subject digest is no longer present as an orphan, and deletes it plus the untagged child manifests its referrer index points at (resolved through a GHCR pull token). It is `continue-on-error` and warns instead of failing — cleanup must never fail a release that is already signed and promoted. Both docker leaves already allowlist `api.github.com:443` and `ghcr.io:443`, so this needs no egress change.
 
 ## Configuration & Inputs
 
@@ -191,7 +196,7 @@ What the templates assume of a calling repo — breaking any of these breaks eve
 | `java-security.yml` | CodeQL (`java-kotlin`, manual build) · Gitleaks · Trivy fs scan |
 | `java-dependency-graph.yml` | Submit the Maven dependency graph (push only) |
 | `tag.yml` | Tag PR builds `pr-<n>-run-<run>`, keep 4 newest per PR |
-| `java-docker.yml` | Paketo buildpack image → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
+| `java-docker.yml` | Paketo buildpack image → GHCR, Trivy, SBOM, sign, attest, keep 3 newest tags + prune orphaned signatures |
 | `deploy-gitops.yml` | `cosign verify`, then bump the manifest tag and commit `[skip ci]` |
 
 For the **Python** pipeline the first four assumptions become: `requirements.txt` at the root (must exist — it keys the pip cache), a `requirements-dev.txt` providing `pytest` + `ruff`, tests split by a registered `integration` pytest marker, and no Dockerfile (the Paketo builder must be able to detect the app). Test reports land at `reports/TEST-*.xml`. The `.env`, `.trivyignore` and GitOps-manifest rules are unchanged.
@@ -204,7 +209,7 @@ For the **Python** pipeline the first four assumptions become: `requirements.txt
 | `python-integration-tests.yml` | `pytest -m integration` + curated `extra-secrets`; exit code 5 is a pass |
 | `python-security.yml` | CodeQL (`python`, build-mode `none`) · Gitleaks · Trivy fs |
 | `python-dependency-graph.yml` | Submit the pip dependency graph (push only) |
-| `python-docker.yml` | `pack build` → GHCR, Trivy, SBOM, sign, attest, keep 3 newest |
+| `python-docker.yml` | `pack build` → GHCR, Trivy, SBOM, sign, attest, keep 3 newest tags + prune orphaned signatures |
 
 Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (pushed, signed, attested, promoted).
 

@@ -96,7 +96,11 @@ cache misses, or re-downloads** — not CPU.
   `python-security.yml` uses `build-mode: none` and sets up no interpreter at all, so a
   diff that adds `python-setup` or an install step **to that leaf** is a real finding.
 - `ghcr-cleanup`'s retry (`continue-on-error` → `sleep 60` → second attempt) is
-  deliberate resilience against GHCR rate limits, not waste.
+  deliberate resilience against GHCR rate limits, not waste. Its cosign-prune step is
+  likewise not waste: the full paginated version listing is what tells a live signature
+  from an orphan, and the per-orphan registry manifest fetch is what finds the untagged
+  child manifests to delete. Both run once per release, after the image is already
+  published, so they are off the critical path.
 - Only this repo's YAML and shell are in scope — never the consumer's Java.
 
 For each finding output one line: `file:line — the waste → the cheaper approach`.
