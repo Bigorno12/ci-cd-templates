@@ -14,7 +14,7 @@ System(templates, "ci-cd-templates", "Two reusable workflow_call pipelines (Java
 System_Ext(callerRepo, "Consuming repo", "Java: mvnw + pom.xml + Spotless. Python: requirements.txt + pytest + ruff. Both: a k8s manifest. e.g. Bigorno12/monolith-architecture")
 System_Ext(actions, "GitHub Actions", "Ephemeral ubuntu-latest runners, hardened by step-security/harden-runner")
 System_Ext(ghapi, "GitHub platform APIs", "Code Scanning (SARIF), Dependency Graph, Releases, Actions cache, tags")
-System_Ext(ghcr, "GHCR", "ghcr.io/<owner>/<repo> — images pinned by digest, 3 most recent kept")
+System_Ext(ghcr, "GHCR", "ghcr.io/<owner>/<repo> — images pinned by digest, 3 most recent tagged kept; cosign sha256-* referrers excluded from that count and pruned when orphaned")
 System_Ext(sigstore, "Sigstore", "fulcio · rekor · tuf — keyless certs, transparency log, timestamps")
 System_Ext(registries, "Upstream registries", "Maven Central, Spring, JBoss, PyPI, Docker Hub, mirror.gcr.io, Trivy/Anchore DBs")
 System_Ext(argo, "Argo CD", "Syncs the bumped manifest from the consumer's main branch")

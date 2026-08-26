@@ -24,6 +24,8 @@ runs:
       uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53
       with:
         image-names: ${{ inputs.image-name }}
+        image-tags: '!sha256-*'
+        tag-selection: tagged
         cut-off: 0s
         timestamp-to-use: 'updated_at'
         keep-n-most-recent: '3'
@@ -41,8 +43,111 @@ runs:
       uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53
       with:
         image-names: ${{ inputs.image-name }}
+        image-tags: '!sha256-*'
+        tag-selection: tagged
         cut-off: 0s
         timestamp-to-use: 'updated_at'
         keep-n-most-recent: '3'
         account: ${{ inputs.account }}
         token: ${{ inputs.pat-token }}
+
+    - name: Prune orphaned cosign artifacts
+      if: github.event_name != 'pull_request'
+      continue-on-error: true
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.pat-token }}
+        PACKAGE: ${{ inputs.image-name }}
+        ACCOUNT: ${{ inputs.account }}
+        OWNER: ${{ github.repository_owner }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        WORK="${RUNNER_TEMP}/ghcr-cleanup"
+        rm -rf "$WORK" && mkdir -p "$WORK"
+
+        if [ "$ACCOUNT" = "user" ]; then
+          API="https://api.github.com/user/packages/container/${PACKAGE}"
+        else
+          API="https://api.github.com/orgs/${ACCOUNT}/packages/container/${PACKAGE}"
+        fi
+
+        gh_api() {
+          curl -sfS \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Authorization: Bearer ${TOKEN}" "$@"
+        }
+
+        page=1
+        : > "$WORK/versions.jsonl"
+        while :; do
+          if ! body=$(gh_api "${API}/versions?per_page=100&page=${page}"); then
+            echo "::warning::Could not list package versions for ${PACKAGE}; skipping cosign pruning"
+            exit 0
+          fi
+          count=$(printf '%s' "$body" | jq 'length')
+          printf '%s' "$body" | jq -c '.[]' >> "$WORK/versions.jsonl"
+          if [ "$count" -lt 100 ]; then break; fi
+          page=$((page + 1))
+        done
+
+        if [ ! -s "$WORK/versions.jsonl" ]; then
+          echo "No package versions found for ${PACKAGE}; nothing to prune"
+          exit 0
+        fi
+
+        # Digests still in the registry, so a live signature can be told from an orphan.
+        jq -r '.name' "$WORK/versions.jsonl" | sort -u > "$WORK/present.txt"
+
+        jq -r '
+          . as $v
+          | $v.metadata.container.tags[]?
+          | select(test("^sha256-[0-9a-f]{64}$"))
+          | "\($v.id)\t\(.)"
+        ' "$WORK/versions.jsonl" | sort -u > "$WORK/referrers.tsv"
+
+        REPO_LC=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+        REG_TOKEN=$(curl -sfS -u "${OWNER}:${TOKEN}" \
+          "https://ghcr.io/token?service=ghcr.io&scope=repository:${REPO_LC}:pull" \
+          | jq -r '.token // empty') || REG_TOKEN=""
+
+        pruned=0
+        while IFS=$'\t' read -r id tag; do
+          [ -n "${id:-}" ] || continue
+          subject="sha256:${tag#sha256-}"
+          if grep -qx "$subject" "$WORK/present.txt"; then
+            continue  # subject image is still published: this signature is live
+          fi
+
+          echo "Pruning orphaned cosign artifact ${tag} (subject ${subject} no longer exists)"
+
+          children=""
+          if [ -n "$REG_TOKEN" ]; then
+            children=$(curl -sfS \
+              -H "Authorization: Bearer ${REG_TOKEN}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json" \
+              "https://ghcr.io/v2/${REPO_LC}/manifests/${tag}" \
+              | jq -r '.manifests[]?.digest' || true)
+          fi
+
+          if ! gh_api -X DELETE -o /dev/null "${API}/versions/${id}"; then
+            echo "::warning::Failed to delete package version ${id} (${tag})"
+            continue
+          fi
+          pruned=$((pruned + 1))
+
+          for child in $children; do
+            child_id=$(jq -r --arg d "$child" '
+              select(.name == $d)
+              | select((.metadata.container.tags | length) == 0)
+              | .id
+            ' "$WORK/versions.jsonl")
+            [ -n "$child_id" ] || continue
+            gh_api -X DELETE -o /dev/null "${API}/versions/${child_id}" \
+              || echo "::warning::Failed to delete bundle manifest ${child}"
+          done
+        done < "$WORK/referrers.tsv"
+
+        echo "Pruned ${pruned} orphaned cosign artifact tag(s)"

@@ -277,7 +277,7 @@ end-to-end without following indirection.
 
 - `.github/actions/java-setup` — installs Temurin JDK, configures Maven cache, sets `MAVEN_OPTS` (rejects multi-line values so nothing extra can be injected into `GITHUB_ENV`).
 - `.github/actions/python-setup` — installs CPython, configures the pip cache (keyed on both requirements files), and installs them. Unlike `java-setup` it writes nothing to `GITHUB_ENV`.
-- `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry).
+- `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry), then prunes orphaned cosign artifacts. Retention is scoped to **tagged** versions and excludes `sha256-*` tags (`tag-selection: tagged`, `image-tags: '!sha256-*'`), so a cosign signature or SBOM attestation is never counted as one of the three kept "images" — counting them evicted live images and left `docker pull` resolving to a deleted digest. A follow-up step then deletes every `sha256-<digest>` referrer tag whose subject image is already gone, plus the untagged manifests that referrer points at. Push-only and `continue-on-error`: if the token cannot list or delete package versions it emits `::warning::` and leaves the release green.
 - `.github/actions/cache-cleanup` — deletes Actions caches outside the retention policy: anything not on `keep-ref` (PR/feature branches) plus `keep-ref` caches older than `retention-days`. Not wired into the master pipeline; call it from your own scheduled workflow with a token that has `actions: write`.
 
 ## Maintaining this repo
@@ -323,18 +323,19 @@ and still reports success.
 weekly, with a cooldown before a fresh release is proposed. Because every `uses:`
 is SHA-pinned, these PRs are how pins get advanced.
 
-**Editing a composite action is a two-commit change.** The three actions under
+**Editing a composite action is a two-commit change.** The actions under
 `.github/actions/` are consumed by SHA-pinned *self-reference*
 (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`), because inside a reusable
 workflow a relative action path resolves against the caller's checkout rather than this
 repo. Merge the action change first, then a second commit bumping every pin — until then
-the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 13 call sites
-(8 `java-setup`, 5 `python-setup`).
+the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 14 call sites
+(7 `java-setup`, 5 `python-setup`, 2 `ghcr-cleanup`). They do not share a SHA — bump only
+the pins for the action you changed.
 
-> **`python-setup` is brand new, so its 5 pins point at a commit that does not contain it
-> yet.** They currently carry the same SHA as the `java-setup` pins, which predates the
-> action. Merge this branch first, then bump those 5 pins to the merge commit — until that
-> second commit lands, every Python job fails at the setup step with "action not found".
+> **`ghcr-cleanup` has just changed, so its 2 pins are stale.** Both docker leaves still
+> run the previous retention, which counted `sha256-*` cosign tags as images. Merge this
+> branch first, then bump those 2 pins to the merge commit — until that second commit
+> lands, neither the tagged-only retention nor the orphan pruning is live for consumers.
 
 ### Further reading
 

@@ -35,7 +35,8 @@ per-phase knobs live in the master pipeline's inputs.** Keep it that way.
 
    A **brand-new** action is the sharp edge of this rule: there is no commit yet that
    contains it, so its first pins are necessarily dangling and every job using them fails
-   with "action not found" until the bump lands. See the `python-setup` row below.
+   with "action not found" until the bump lands. `python-setup` went through exactly that
+   and is now resolved; see the state section below for which pins are currently pending.
 
    Inside a reusable workflow, a relative *action* path resolves against the checked-out
    workspace — the **consumer's** repo — not this one. This also makes editing an action a
@@ -123,8 +124,10 @@ the gates below are still the enforcement point.
 
 ```sh
 # Every pin site for a composite action (what the second commit must bump)
-grep -rn "ci-cd-templates/.github/actions/java-setup@" .github/     # 8 sites
+grep -rn "ci-cd-templates/.github/actions/java-setup@" .github/     # 7 sites
 grep -rn "ci-cd-templates/.github/actions/python-setup@" .github/   # 5 sites
+grep -rn "ci-cd-templates/.github/actions/ghcr-cleanup@" .github/   # 2 sites (both docker leaves)
+# cache-cleanup has 0 sites — it is not wired into the master pipeline by design.
 
 # Are the pins actually stale? Empty output = the actions have not changed since the pin.
 git log --oneline <pinned-sha>..HEAD -- .github/actions/
@@ -148,19 +151,22 @@ phase to `audit` **temporarily, on a branch**) — do not guess a hostname into 
 
 ## State of this repo
 
-**Composite-action pins:** 13 call sites, all carrying
-`6f6e9d0ff799606a83ba2086a82e6e5954ba86a6` — but they are **not** in the same state:
+**Composite-action pins:** 14 call sites carrying **three different SHAs** — do not assume
+one bump covers them all:
 
-- the 8 `java-setup` pins are current; nothing under `.github/actions/java-setup/` has
-  changed since that commit.
-- the 5 `python-setup` pins are **dangling**. That SHA predates the action, so
-  `git cat-file -e 6f6e9d0…:.github/actions/python-setup/action.yml` fails and every Python
-  job dies at its setup step. They were written with the `java-setup` SHA as a placeholder
-  so the file passes actionlint/zizmor; they are corrected by the ordinary second commit
-  (merge, then bump), not by inventing a SHA.
+- the 7 `java-setup` pins are on `042275df166955addd19cdb9d020b16fce82738c` and are
+  **current**; nothing under `.github/actions/java-setup/` has changed since it.
+- the 5 `python-setup` pins are on `869e85bd1d671532cd37c469fc14b39e9ba7fde7` and are
+  **current**. The earlier dangling state is resolved — that SHA contains the action.
+- the 2 `ghcr-cleanup` pins (both docker leaves) are on
+  `042275df166955addd19cdb9d020b16fce82738c` and are the **pending half of a two-commit
+  change**: `.github/actions/ghcr-cleanup/action.yml` has since gained the `tag-selection` /
+  `image-tags` retention scoping and the cosign-prune step, none of which is live for
+  either docker leaf until both pins are bumped to the merge SHA. Until then the leaves run
+  the old retention that counted `sha256-*` signature tags as images.
 
 Verify with the `git log <sha>..HEAD -- .github/actions/` and `git cat-file -e` commands
-above before assuming either state.
+above before assuming any of this is still true.
 
 **Naming convention (load-bearing):** `java-*` = the Java tree, `python-*` = the Python
 tree, and **unprefixed = shared or repo-internal**. The four unprefixed workflows are
@@ -193,7 +199,7 @@ Known deviations, worth fixing when you are next in the file:
 | `java-build.yml:64` | the `.env` check filters `.env.example` **twice** — pathspec `':!:.env.example'` *and* `grep -v '\.env\.example$'` — and since the pathspec is `*.env`, neither can ever match `.env.example` (verified: `git ls-files -- '*.env'` does not list it). Two dead exclusions in the one step whose job is to fail the build. | drop both exclusions, or narrow the pathspec to `'*.env*'` and keep exactly one |
 | `java-security.yml` allowlist | omits `repo1.maven.org`, which the build/test phases include — the CodeQL job runs a full `mvnw compile`, so a resolution that reaches repo1 fails closed | confirm intentional; otherwise align with the build phase |
 | `java-docker.yml` allowlist | omits `repo.spring.io` and `repository.jboss.org` although it runs a full `package` | same: confirm intentional |
-| 5 × `python-setup@6f6e9d0…` | dangling pin — that SHA predates the action (see above). Not a thing to "fix" in place: it is the pending half of the standard two-commit change | after merge, bump all 5 to the merge SHA |
+| 2 × `ghcr-cleanup@042275d…` | stale pin — the action gained tagged-only retention plus the cosign-prune step after that commit, so both docker leaves still run the old behaviour. The pending half of the standard two-commit change, not a thing to "fix" in place | after merge, bump both to the merge SHA |
 | `python-docker.yml` allowlist | includes `deps.paketo.io`, which was **reasoned about, not observed** — no run has produced a denial for it yet | confirm against the first `audit`-policy run's harden-runner summary; drop it if the buildpack never reaches it |
 | `java-build.yml:64` vs `python-build.yml` | the Python leaf already uses the corrected single-exclusion form (`'*.env*'` + `':!:.env.example'`) — the Java leaf is the one still carrying the two dead exclusions | copy the Python leaf's form into `java-build.yml` |
 
