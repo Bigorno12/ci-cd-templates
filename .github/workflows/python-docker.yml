@@ -256,4 +256,3 @@ jobs:
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}
-
