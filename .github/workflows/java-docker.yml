@@ -150,6 +150,16 @@ jobs:
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
 
+      - name: Output exact pull command
+        run: |
+          cat <<EOF>> "$GITHUB_STEP_SUMMARY"
+          ### 🚀 Image Successfully Built/Published!
+          To pull this image locally, run:
+          \`\`\`bash
+          podman pull ${{ steps.build.outputs.image }}
+          \`\`\`
+          EOF
+
       - name: Resolve image reference
         id: ref
         env:
@@ -192,6 +202,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.ref.outputs.ref }}
+          vuln-type: 'os,library'
           scanners: vuln
           severity: CRITICAL,HIGH
           ignore-unfixed: true
