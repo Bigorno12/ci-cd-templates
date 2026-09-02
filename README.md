@@ -2,6 +2,37 @@
 
 Reusable GitHub Actions CI/CD templates for Java (Maven + Spring Boot) and Python (pip + pytest) projects. Consuming repos call these workflows instead of duplicating pipeline logic. Every job runs behind `step-security/harden-runner` with a configurable egress policy and `disable-sudo: true`, third-party actions are pinned to commit SHAs, checkouts use `persist-credentials: false` unless the job genuinely pushes, and per-job `permissions` are scoped to least privilege.
 
+## Design pattern: templates, not an orchestrator
+
+These are **reusable workflow templates**, composed with `workflow_call` at every
+level. They are deliberately *not* an orchestrator, and the distinction changes how you
+write the caller in your own repo.
+
+- **Template pattern — what this is.** Your caller delegates to one entry point, and
+  each level below composes further templates with `uses:`. GitHub's scheduler owns the
+  dependency graph, so every leaf shows up as its own status check on your PR,
+  `permissions` intersect down the tree, and nothing needs a token beyond the caller's
+  `GITHUB_TOKEN`.
+- **Orchestrator pattern — what this is not.** A controller job that dispatches other
+  workflows (`workflow_dispatch` or the REST API) and polls them for completion. That
+  needs a PAT, because `GITHUB_TOKEN` cannot trigger workflows recursively; it collapses
+  the fan-out into one opaque job; and a failure surfaces as "the poller saw something
+  fail" rather than on the job that actually failed.
+
+So the workflow in your repo is a **thin template consumer** — one `uses:` job carrying
+`with:` and `secrets:`, no logic of its own. Name it for what it is (`CI`), not
+"orchestrator"; nothing in it orchestrates anything. This is a display name only, so
+renaming it is safe and breaks nothing.
+
+`build-gate` is the one job here that aggregates results, and it is a *gate*, not an
+orchestrator: it runs `if: always()` after the phases and fails on any
+`failure`/`cancelled`. It coordinates nothing — it only reports.
+
+**Nesting depth is not a constraint.** Your caller → master pipeline → grouping layer →
+leaf is 4 of the 10 connected workflow levels GitHub permits (a top-level caller plus up
+to 9 nested), so the grouping layers cost no headroom and you can still wrap the entry
+point in a workflow of your own.
+
 ## Usage
 
 Pick the entry point for your language — `master-java-pipeline.yml` or
@@ -12,7 +43,8 @@ the full set of permissions the pipeline needs — GitHub defaults an unset perm
 ### Java
 
 ```yaml
-name: Main CI Orchestrator
+# A thin template consumer: one uses: job, no logic of its own.
+name: CI
 on:
   push:
     branches: [ "main" ]
@@ -292,14 +324,17 @@ repo runs checks on its own CI code.
 |-----|-----------------|
 | `actionlint` | Structural errors across all workflows — bad `needs:`, invalid expressions, unknown `runs-on` labels, shellcheck findings inside `run:` blocks. The binary is checksum-verified against a pinned SHA-256 before it executes. |
 | `zizmor` | Actions-specific security findings at `medium`+ — unpinned action refs, template injection via `${{ github.event.* }}`, credential persistence, over-broad `permissions`. |
+| `allowlist-drift` | **Report-only.** Egress hosts that belong to one toolchain are all-or-nothing, so a leaf declaring *part* of a group (say 3 of the 4 Maven mirrors) is copy-paste drift rather than a deliberate trim. Emits `::warning::` and never fails — widening an allowlist needs an observed harden-runner denial, not a lint opinion. |
 
-Neither job is path-filtered, and deliberately so: a required check skipped by a
-path filter stays permanently pending and blocks the merge instead of passing.
-Everything these jobs actually lint lives under `.github/`, so the filter would
-buy little even setting that aside.
+`actionlint` and `zizmor` are not path-filtered, and deliberately so: a required
+check skipped by a path filter stays permanently pending and blocks the merge
+instead of passing. Everything these jobs actually lint lives under `.github/`, so
+the filter would buy little even setting that aside.
 
 Both are worth setting as required status checks on `main`; the contexts are
-`actionlint` and `zizmor`.
+`actionlint` and `zizmor`. Do **not** make `allowlist-drift` required — it is a
+signal, not a gate, and the two known partial groups are recorded in
+[`.claude/rules/workflow-rule.md`](.claude/rules/workflow-rule.md).
 
 **Local hooks** in `.githook/` mirror the CI checks so failures surface before
 they reach a runner. Enable them once per clone:
@@ -332,10 +367,9 @@ the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 14 
 (7 `java-setup`, 5 `python-setup`, 2 `ghcr-cleanup`). They do not share a SHA — bump only
 the pins for the action you changed.
 
-> **`ghcr-cleanup` has just changed, so its 2 pins are stale.** Both docker leaves still
-> run the previous retention, which counted `sha256-*` cosign tags as images. Merge this
-> branch first, then bump those 2 pins to the merge commit — until that second commit
-> lands, neither the tagged-only retention nor the orphan pruning is live for consumers.
+All 14 pins are currently **current and resolvable** — `java-setup@13d9613`,
+`python-setup@869e85b`, `ghcr-cleanup@04babd9` — with no action modified since the commit
+it is pinned to. The tagged-only retention and orphan pruning are live for consumers.
 
 ### Further reading
 

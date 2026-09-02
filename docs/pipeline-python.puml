@@ -1,6 +1,6 @@
 @startuml pipeline-python
 ' Hand-maintained. Source of truth = .github/workflows/master-python-pipeline.yml + python-verify.yml + python-release.yml
-title Python pipeline — same three levels, same entry-point contract
+title Python pipeline — same template pattern, same three levels, same entry-point contract
 
 skinparam componentStyle rectangle
 skinparam linetype ortho

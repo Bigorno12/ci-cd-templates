@@ -11,6 +11,15 @@ An inline copy silently forks the source of truth: the next Dependabot bump, or 
 allowlist fix, stops applying to it — and because these workflows are the trust boundary for
 every consuming repo, the drift ships to all of them at once.
 
+**This is the template pattern, not the orchestrator pattern.** Every edge is a `uses:`
+reference GitHub's scheduler resolves; nothing dispatches a workflow and polls it. A new
+stage is therefore always another `workflow_call` leaf — never a controller job driving
+`workflow_dispatch` or the REST API, which would need a PAT, collapse the fan-out into one
+opaque job, and detach failures from their cause. `build-gate` aggregates results but
+coordinates nothing: it is a gate. Counting the consumer's caller, a run is 4 of the 10
+connected workflow levels GitHub allows, so nesting depth is never the reason to flatten
+a layer.
+
 This repo is **two three-level `workflow_call` trees**, one per language:
 `master-java-pipeline.yml` / `master-python-pipeline.yml` (the only entry points) →
 `java-verify.yml` / `java-release.yml` / `python-verify.yml` / `python-release.yml` (grouping layers,
@@ -109,6 +118,12 @@ skipped by a path filter stays permanently pending and blocks the merge instead:
 - **`zizmor`** (`--persona regular --min-severity medium`) — Actions-specific findings:
   unpinned refs, template injection, credential persistence, over-broad `permissions`.
 
+A third job, **`allowlist-drift`**, is deliberately *not* a gate. Toolchain host groups are
+all-or-nothing, so a leaf declaring part of one drifted rather than trimmed; the job warns
+and always exits 0, because rule 4 still stands — an observed denial justifies a host, a
+lint warning does not. Do not make it required, and do not "fix" its warnings by pasting
+hosts between leaves.
+
 `.githook/pre-push` runs `actionlint` + `yamllint --strict` locally, but **path-gated**: it
 skips entirely unless the pushed commits touch `.yml`/`.yaml`, and it degrades to a warning
 when a tool is missing. A clean local run can be a run that checked nothing.
@@ -154,16 +169,18 @@ phase to `audit` **temporarily, on a branch**) — do not guess a hostname into 
 **Composite-action pins:** 14 call sites carrying **three different SHAs** — do not assume
 one bump covers them all:
 
-- the 7 `java-setup` pins are on `042275df166955addd19cdb9d020b16fce82738c` and are
+- the 7 `java-setup` pins are on `13d9613ad8eb8df9072e11ec992ab9cfc053dcd8` and are
   **current**; nothing under `.github/actions/java-setup/` has changed since it.
 - the 5 `python-setup` pins are on `869e85bd1d671532cd37c469fc14b39e9ba7fde7` and are
   **current**. The earlier dangling state is resolved — that SHA contains the action.
 - the 2 `ghcr-cleanup` pins (both docker leaves) are on
-  `042275df166955addd19cdb9d020b16fce82738c` and are the **pending half of a two-commit
-  change**: `.github/actions/ghcr-cleanup/action.yml` has since gained the `tag-selection` /
-  `image-tags` retention scoping and the cosign-prune step, none of which is live for
-  either docker leaf until both pins are bumped to the merge SHA. Until then the leaves run
-  the old retention that counted `sha256-*` signature tags as images.
+  `04babd969c4959315421359d4ad45bff14f0bf1a` and are **current**. The two-commit change
+  that added `tag-selection` / `image-tags` retention scoping and the cosign-prune step has
+  landed on both sides, so the tagged-only retention is live for consumers.
+
+**There is no pending pin bump.** All three actions verify clean against both checks —
+`git log <sha>..HEAD -- .github/actions/<name>/` is empty and `git cat-file -e
+<sha>:.github/actions/<name>/action.yml` exits 0.
 
 Verify with the `git log <sha>..HEAD -- .github/actions/` and `git cat-file -e` commands
 above before assuming any of this is still true.
@@ -197,9 +214,8 @@ Known deviations, worth fixing when you are next in the file:
 | where | issue | correct form |
 | --- | --- | --- |
 | `java-build.yml:64` | the `.env` check filters `.env.example` **twice** — pathspec `':!:.env.example'` *and* `grep -v '\.env\.example$'` — and since the pathspec is `*.env`, neither can ever match `.env.example` (verified: `git ls-files -- '*.env'` does not list it). Two dead exclusions in the one step whose job is to fail the build. | drop both exclusions, or narrow the pathspec to `'*.env*'` and keep exactly one |
-| `java-security.yml` allowlist | omits `repo1.maven.org`, which the build/test phases include — the CodeQL job runs a full `mvnw compile`, so a resolution that reaches repo1 fails closed | confirm intentional; otherwise align with the build phase |
-| `java-docker.yml` allowlist | omits `repo.spring.io` and `repository.jboss.org` although it runs a full `package` | same: confirm intentional |
-| 2 × `ghcr-cleanup@042275d…` | stale pin — the action gained tagged-only retention plus the cosign-prune step after that commit, so both docker leaves still run the old behaviour. The pending half of the standard two-commit change, not a thing to "fix" in place | after merge, bump both to the merge SHA |
+| `java-security.yml` allowlist | omits `repo1.maven.org`, which the build/test phases include — the CodeQL job runs a full `mvnw compile`, so a resolution that reaches repo1 fails closed. **`allowlist-drift` warns on this** (3 of 4 Maven mirrors) | confirm intentional; otherwise align with the build phase |
+| `java-docker.yml` allowlist | omits `repo.spring.io` and `repository.jboss.org` although it runs a full `package`. **`allowlist-drift` warns on this** (2 of 4) | same: confirm intentional |
 | `python-docker.yml` allowlist | includes `deps.paketo.io`, which was **reasoned about, not observed** — no run has produced a denial for it yet | confirm against the first `audit`-policy run's harden-runner summary; drop it if the buildpack never reaches it |
 | `java-build.yml:64` vs `python-build.yml` | the Python leaf already uses the corrected single-exclusion form (`'*.env*'` + `':!:.env.example'`) — the Java leaf is the one still carrying the two dead exclusions | copy the Python leaf's form into `java-build.yml` |
 

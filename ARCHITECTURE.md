@@ -11,6 +11,25 @@ workflow it describes at the top; when that workflow changes, the diagram is wha
 > images appear — nothing else to fix. To preview before merging, see
 > [Rendering notes](#rendering-notes).
 
+### Pattern
+
+This is the **template pattern** — reusable workflows composed with `workflow_call` at
+every level — and not the orchestrator pattern. Nothing here dispatches a workflow and
+polls it for completion; each edge in the diagrams below is a `uses:` reference that
+GitHub's own scheduler resolves into the run graph.
+
+That choice is what buys the properties the rest of this document describes: each leaf
+surfaces as an independent status check, `permissions` intersect from caller down to leaf
+so a leaf can only ever *lose* privilege, and the whole tree runs on the caller's
+`GITHUB_TOKEN` with no PAT. An orchestrator would need a PAT (`GITHUB_TOKEN` cannot
+trigger workflows recursively), would collapse the fan-out into one opaque job, and would
+report failures against the poller rather than the job that failed.
+
+Depth is not a constraint: consumer caller → master pipeline → grouping layer → leaf is
+4 of the 10 connected levels GitHub allows (top-level caller plus up to 9 nested).
+`build-gate` aggregates the phases' results but coordinates nothing — it is a gate, not
+an orchestrator.
+
 #### Pipeline — Java (logical architecture)
 ![Java pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline-java.puml)
 
@@ -73,6 +92,47 @@ quota and evict the image the manifest just pinned — and a best-effort step pr
 whose subject image is already gone. See
 [CLAUDE.md → Supply-chain Security](CLAUDE.md#supply-chain-security) and
 [CLAUDE.md → Consumer Contract](CLAUDE.md#consumer-contract).
+
+### Proposed: split the composite actions into their own repo
+
+**Status: not started — a plan, not a description of the repo today.**
+
+The SHA-pinned self-reference (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`)
+is forced, not chosen: inside a reusable workflow a relative action path resolves against
+the *consumer's* checkout, so `uses: ./` would break every caller. The cost is structural
+rather than cosmetic:
+
+- editing an action is a **two-commit change** — merge, then bump every pin — and the edit
+  is inert in between;
+- a **brand-new** action is worse than inert, because its first pins necessarily name a
+  commit that predates it and every job using them fails with "action not found";
+- Dependabot cannot advance a self-reference, so those 14 pins move by hand, which is the
+  one place this repo tolerates a manual SHA bump.
+
+Moving the four actions to a sibling repo (`Bigorno12/ci-cd-actions`) dissolves all three:
+the pins become ordinary third-party pins that Dependabot advances in its existing grouped
+weekly PR, and an action can never be referenced by a commit that predates it because the
+two repos version independently.
+
+Cutover order, which matters — every step keeps `main` green:
+
+1. Create `Bigorno12/ci-cd-actions` and copy `.github/actions/*` across unchanged, keeping
+   the `java-setup` / `python-setup` / `ghcr-cleanup` / `cache-cleanup` directory names so
+   only the owner/repo half of each `uses:` changes.
+2. Tag a first release there and record its SHA.
+3. In **one** PR here, repoint all 14 call sites to
+   `Bigorno12/ci-cd-actions/<name>@<sha>`. This is the only risky step: the pins must be
+   verified against the new repo with `git cat-file -e <sha>:<name>/action.yml` in a clone
+   of it, since `post-workflow-edit.sh` resolves pins against *this* repo and will report
+   a false dangling pin for every one of them.
+4. Delete `.github/actions/` here, and teach `post-workflow-edit.sh` to resolve
+   `ci-cd-actions` pins against the sibling clone (or drop that check and let Dependabot
+   own pin currency).
+5. Add `ci-cd-actions` to `.github/dependabot.yml`'s `github-actions` group.
+
+Not breaking for consumers: they pin *workflows*, and the actions are an implementation
+detail resolved at run time. But it does add a second repo to the trust boundary, which is
+the trade to weigh — today one CODEOWNERS file governs everything a consumer executes.
 
 ### Rendering notes
 

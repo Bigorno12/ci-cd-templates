@@ -1,6 +1,6 @@
 @startuml pipeline-java
 ' Hand-maintained. Source of truth = .github/workflows/master-java-pipeline.yml + java-verify.yml + java-release.yml
-title Java pipeline — three levels of workflow_call, one of two entry points
+title Java pipeline — template pattern, three levels of workflow_call, one of two entry points
 
 skinparam componentStyle rectangle
 skinparam linetype ortho
@@ -46,6 +46,21 @@ B ..> GATE
 DG ..> GATE
 V ..> GATE
 S2 ..> GATE
+
+note top of M
+  **Template pattern, not orchestrator.**
+  Every arrow is a uses: reference GitHub's
+  scheduler resolves — nothing dispatches a
+  workflow and polls it. So each leaf is its
+  own status check, permissions intersect
+  downward, and no PAT is involved.
+
+  build-gate aggregates results but drives
+  nothing: it is a gate, not a controller.
+
+  Depth: caller → master → grouping → leaf
+  = 4 of the 10 levels GitHub allows.
+end note
 
 note right of S1
   **verify has NO needs: build.**
