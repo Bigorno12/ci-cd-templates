@@ -58,6 +58,78 @@ jobs:
           tar -xzf actionlint.tar.gz actionlint
           ./actionlint -color
 
+  allowlist-drift:
+    name: allowlist-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            github-releases.githubusercontent.com:443
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Report partial toolchain allowlists
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob
+          import re
+
+          GROUPS = {
+              "maven": {
+                  "repo.maven.apache.org:443",
+                  "repo1.maven.org:443",
+                  "repo.spring.io:443",
+                  "repository.jboss.org:443",
+              },
+              "pypi": {
+                  "pypi.org:443",
+                  "files.pythonhosted.org:443",
+              },
+          }
+
+          BLOCK = re.compile(
+              r"^[ ]*allowed-endpoints:\n"
+              r"(?:[ ]*(?:description|required|type):.*\n)*"
+              r"[ ]*default:[ ]*>\n"
+              r"((?:[ ]{10,}\S+\n)+)",
+              re.M,
+          )
+
+          drift = 0
+          for path in sorted(glob.glob(".github/workflows/*.yml")):
+              with open(path) as fh:
+                  match = BLOCK.search(fh.read())
+              if not match:
+                  continue
+              hosts = set(match.group(1).split())
+              for name, group in GROUPS.items():
+                  present, missing = hosts & group, group - hosts
+                  if present and missing:
+                      drift += 1
+                      print(
+                          f"::warning file={path}::{name} allowlist is partial: "
+                          f"declares {len(present)}/{len(group)} hosts, missing "
+                          f"{' '.join(sorted(missing))}. Either add them, or record "
+                          f"the omission as observed in workflow-rule.md."
+                      )
+
+          print(f"allowlist-drift: {drift} partial group(s) across the two trees.")
+          PY
+
   zizmor:
     name: zizmor
     runs-on: ubuntu-latest

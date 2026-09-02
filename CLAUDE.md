@@ -10,6 +10,8 @@ These workflows are the trust boundary for every repo that calls them — a slop
 
 Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Java 25) and Python (pip + pytest + ruff, CPython 3.14) consumers. There is **no application code and no test suite** — every file is CI configuration, so "build" and "test" here mean *lint the YAML and reason about what happens on a runner*. Consumers call one entry point (`master-java-pipeline.yml` or `master-python-pipeline.yml`) instead of duplicating pipeline logic; `Bigorno12/monolith-architecture` is the reference consumer.
 
+**Pattern: templates, not an orchestrator.** Every level is `workflow_call` composition — the consumer's caller delegates to an entry point, which composes grouping layers, which compose leaves. GitHub's scheduler owns the dependency graph, so each leaf is its own status check, `permissions` intersect down the tree, and no PAT is needed. This is *not* the orchestrator pattern: there is no controller job dispatching workflows via `workflow_dispatch`/the REST API and polling them, which would need a PAT (`GITHUB_TOKEN` cannot trigger workflows recursively), collapse the fan-out into one opaque job, and detach failures from the job that caused them. `build-gate` aggregates results but coordinates nothing — it is a gate, not an orchestrator. Never introduce a dispatch-and-poll job here; if a new stage is needed, it is another `workflow_call` leaf.
+
 **Structure:** GitHub forbids subdirectories under `.github/workflows`, so the workflow files are necessarily flat — the hierarchy lives in `uses:` edges, not in folders.
 - `.github/workflows/` — 24 workflows: 2 entry points (Java, Python), 4 grouping layers, 16 leaf modules, 2 for this repo's own CI. `tag.yml` and `deploy-gitops.yml` are language-agnostic and shared by both entry points rather than duplicated.
 - `.github/actions/` — 4 composite actions (`java-setup`, `python-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
@@ -80,6 +82,11 @@ cosign verify-attestation --type cyclonedx  ...same flags...  # the Syft SBOM
 Two parallel trees, one per language. The Python one is the same shape with `python-`
 leaves; `tag.yml` and `deploy-gitops.yml` are shared, not forked.
 
+Counting the consumer's own caller, a run is 4 connected workflow levels
+(caller → master → grouping layer → leaf). GitHub permits **10** — a top-level caller plus
+up to 9 nested — so there is ample headroom: the grouping layers cost nothing, and a
+consumer may still wrap an entry point in a workflow of their own.
+
 ```
 master-java-pipeline.yml        one of two entry points consumers call
 ├─ java-build.yml                     test-compile · reject tracked .env          [contents: read]
@@ -110,7 +117,8 @@ master-python-pipeline.yml       the Python entry point
 ### Two reference styles — and why it matters
 - **Workflows** reference each other locally: `uses: ./.github/workflows/java-lint.yml`. Changes take effect on the same commit.
 - **Composite actions** use an absolute SHA-pinned self-reference: `uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>` (7 call sites; `python-setup@<sha>`, 5; `ghcr-cleanup@<sha>`, 2 — `cache-cleanup` has none, it is not wired into the master pipeline). The three pinned actions do **not** share a SHA. **Editing `.github/actions/*/action.yml` has no effect until the pins are bumped** — merge the action change, then a second commit bumping every pin for *that* action to the new SHA.
-- A **new** action makes that worse than inert — its first pins carry a SHA that predates the action, so they resolve to nothing and every job using them fails with "action not found" until the post-merge bump. `python-setup` went through that and is now bumped (`869e85b`). The live pending case is `ghcr-cleanup`: its 2 pins are stale, not dangling, so both docker leaves silently run the old retention until they are bumped. `post-workflow-edit.sh` flags both; `git cat-file -e <sha>:<path>` tells them apart.
+- A **new** action makes that worse than inert — its first pins carry a SHA that predates the action, so they resolve to nothing and every job using them fails with "action not found" until the post-merge bump. `python-setup` went through exactly that. `post-workflow-edit.sh` flags stale and dangling pins alike; `git cat-file -e <sha>:<path>` tells them apart.
+- **All 14 pins are currently current and resolvable** — `java-setup@13d9613`, `python-setup@869e85b`, `ghcr-cleanup@04babd9`, no action modified since the commit it is pinned to. There is no pending second commit. Re-verify with `git log <sha>..HEAD -- .github/actions/<name>/` rather than trusting this line.
 
 ### Input plumbing
 Every leaf exposes the same egress trio: `egress-policy` (default `"block"`), `allowed-endpoints` (the base allowlist, held as the input's *default* — this is where hosts actually live), and `extra-allowed-endpoints` (appended by the caller; the base stays intact). The master pipeline fans this into phase-scoped inputs.
@@ -161,6 +169,8 @@ Secrets are all optional and fall back to `github.token`: `CR_PAT` (GHCR push + 
 Concurrency: `${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress` everywhere **except** `main`.
 
 **Tuning an allowlist:** a host every consumer needs goes into that leaf's `allowed-endpoints` default; a consumer-specific host goes in their `extra-*` input. Denied hosts appear in the harden-runner run summary — watch the first run after any policy change rather than guessing.
+
+`workflow-lint.yml`'s **`allowlist-drift`** job reports the failure mode that 16 self-contained copy-pasted allowlists guarantee: a leaf declaring *part* of a toolchain host group (3 of the 4 Maven mirrors, say) drifted rather than trimmed deliberately. It is `::warning::`-only and must stay that way — widening a list still requires an observed denial, so the job names the suspect and leaves the decision to a human. Two partial groups are known and recorded in `.claude/rules/workflow-rule.md`.
 
 ## Supply-chain Security
 
@@ -238,6 +248,8 @@ Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (push
 - Never fork a `python-tag.yml` or `python-deploy-gitops.yml` — those two are language-agnostic and shared by both entry points on purpose
 - Never add an input to a leaf just to restore symmetry between the two trees; `python-security.yml` takes no `python-version` because nothing in it runs an interpreter
 - Never widen an allowlist by switching a phase to `audit` as the fix — add the specific host
+- Never widen an allowlist just because `allowlist-drift` warned; the job names a suspect, an observed harden-runner denial is what justifies the host
+- Never add a controller job that dispatches workflows and polls them — this is the template pattern; a new stage is another `workflow_call` leaf, not an orchestrator
 - Run `actionlint` **and** `yamllint --strict .` before committing; run `zizmor` before pushing any workflow change
 - Update `README.md` in the same commit as any input, permission, or behavior change — it is the consumer's only contract
 - Keep comments concise, prefer explanatory names; don't leave tombstone comments when deleting or moving code
