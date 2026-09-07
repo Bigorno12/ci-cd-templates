@@ -71,6 +71,6 @@ jobs:
           dev-requirements: ""
 
       - name: Update dependency graph
-        uses: advanced-security/component-detection-dependency-submission-action@31f25a8de68ae5ce2ca274bc28546a78683c15ce
+        uses: advanced-security/component-detection-dependency-submission-action@b282c67b1008fde9b60da4bdfcd8849613e293b2
         with:
           detectorsCategories: Pip
