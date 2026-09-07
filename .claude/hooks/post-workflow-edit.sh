@@ -40,7 +40,7 @@ if (( IS_ACTION )); then
     SITES=$(grep -rlE "ci-cd-templates/\.github/actions/${ACTION}@" "$REPO_ROOT/.github/workflows" 2>/dev/null | wc -l | tr -d ' ')
     PINS=$(grep -rhoE "ci-cd-templates/\.github/actions/${ACTION}@[0-9a-f]{7,40}" "$REPO_ROOT/.github/workflows" 2>/dev/null | sed 's/.*@//' | sort -u | tr '\n' ' ')
     if [[ -n "${SITES:-}" && "$SITES" != "0" ]]; then
-        NOTES+=("Edited the '$ACTION' composite action. It is consumed by SHA-pinned self-reference, so this change is INERT until the pins move: $SITES workflow file(s) still pin ${PINS:-<unknown>}. Merge the action change first, then a second commit bumping every pin. Find them with: grep -rn \"ci-cd-templates/.github/actions/${ACTION}@\" .github/")
+        NOTES+=("Edited '$ACTION' — consumed by SHA-pinned self-reference, so this edit is INERT until the pins move: $SITES workflow file(s) still pin ${PINS:-<unknown>}. Merge first, then bump every pin: grep -rn \"ci-cd-templates/.github/actions/${ACTION}@\" .github/")
     fi
 fi
 
@@ -52,7 +52,7 @@ while IFS='@' read -r ACTION_NAME PIN_SHA; do
     [[ -n "${ACTION_NAME:-}" && -n "${PIN_SHA:-}" ]] || continue
     git -C "$REPO_ROOT" cat-file -e "${PIN_SHA}^{commit}" 2>/dev/null || continue
     if ! git -C "$REPO_ROOT" cat-file -e "${PIN_SHA}:.github/actions/${ACTION_NAME}/action.yml" 2>/dev/null; then
-        NOTES+=("Dangling composite-action pin in $REL: commit ${PIN_SHA:0:7} does not contain .github/actions/${ACTION_NAME}/action.yml. Every job using this pin fails with \"action not found\" — this is not a version skew, the action is simply absent at that commit (usually because it is new and unmerged). Merge the action first, then bump this pin to the merge commit. Never invent a SHA to make it resolve.")
+        NOTES+=("Dangling pin in $REL: commit ${PIN_SHA:0:7} does not contain .github/actions/${ACTION_NAME}/action.yml — jobs fail with \"action not found\" (the action is absent at that commit, usually new and unmerged). Merge the action, then bump the pin to the merge commit; never invent a SHA.")
     fi
 done < <(grep -hoE "ci-cd-templates/\.github/actions/[a-z0-9-]+@[0-9a-f]{40}" "$FILE" 2>/dev/null \
     | sed -E 's#.*/actions/##' | sort -u)
@@ -62,7 +62,7 @@ LOCAL_ACTION=$(grep -nE 'uses:[[:space:]]*\./\.github/actions/' "$FILE" 2>/dev/n
 if [[ -n "$LOCAL_ACTION" ]]; then
     NOTES+=("Local composite-action ref in $REL:
 $LOCAL_ACTION
-Inside a reusable workflow, a relative action path resolves against the checked-out workspace — the CONSUMER's repo — not this one, so it fails for every caller. Use the absolute pinned form: Bigorno12/ci-cd-templates/.github/actions/<name>@<sha>. ('uses: ./' is correct only for workflow_call refs between workflows.)")
+A relative action path resolves against the CONSUMER's checkout, not this repo — use Bigorno12/ci-cd-templates/.github/actions/<name>@<sha>. ('uses: ./' is only for workflow_call refs.)")
 fi
 
 # ── 3. Unpinned uses: ─────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ UNPINNED=$(grep -nE '^[[:space:]]*-?[[:space:]]*uses:' "$FILE" 2>/dev/null \
     | grep -vE '@[0-9a-f]{40}[[:space:]]*(#.*)?$' \
     || true)
 if [[ -n "$UNPINNED" ]]; then
-    NOTES+=("Unpinned action reference(s) in $REL — every third-party 'uses:' must be a full 40-character commit SHA (zizmor fails the build on tags/branches):
+    NOTES+=("Unpinned 'uses:' in $REL — pin to a full 40-char commit SHA (zizmor fails on tags/branches):
 $UNPINNED")
 fi
 
@@ -86,10 +86,10 @@ if (( ! IS_ACTION )); then
         CO=$(grep -c 'actions/checkout@' "$FILE" 2>/dev/null || true)
         PC=$(grep -cE '^[[:space:]]+persist-credentials:' "$FILE" 2>/dev/null || true)
 
-        (( ${HR:-0} < JOBS ))   && NOTES+=("$REL has $JOBS runner job(s) but ${HR:-0} harden-runner step(s). Every job starts with step-security/harden-runner (disable-sudo: true) plus an allowed-endpoints list when the policy is block.")
-        (( ${TO:-0} < JOBS ))   && NOTES+=("$REL has $JOBS runner job(s) but ${TO:-0} timeout-minutes. Every job carries one (5 for gates/tagging, 10-15 for builds, 30 for CodeQL).")
-        (( ${PERM:-0} < JOBS )) && NOTES+=("$REL has $JOBS runner job(s) but ${PERM:-0} permissions block(s). Declare least-privilege permissions per job — an unset permission defaults to none, and permissions intersect with the caller's.")
-        (( ${CO:-0} > 0 && ${PC:-0} < ${CO:-0} )) && NOTES+=("$REL has ${CO:-0} checkout step(s) but ${PC:-0} persist-credentials setting(s). Use persist-credentials: false unless the job genuinely pushes (only tag.yml and deploy-gitops.yml do).")
+        (( ${HR:-0} < JOBS ))   && NOTES+=("$REL: $JOBS runner job(s), ${HR:-0} harden-runner step(s) — every job starts with step-security/harden-runner (disable-sudo: true; allowed-endpoints when policy is block).")
+        (( ${TO:-0} < JOBS ))   && NOTES+=("$REL: $JOBS runner job(s), ${TO:-0} timeout-minutes — every job carries one (5 gates/tagging, 10-15 builds, 30 CodeQL).")
+        (( ${PERM:-0} < JOBS )) && NOTES+=("$REL: $JOBS runner job(s), ${PERM:-0} permissions block(s) — least privilege per job; unset defaults to none and intersects with the caller's.")
+        (( ${CO:-0} > 0 && ${PC:-0} < ${CO:-0} )) && NOTES+=("$REL: ${CO:-0} checkout step(s), ${PC:-0} persist-credentials setting(s) — use persist-credentials: false unless the job genuinely pushes (only tag.yml and deploy-gitops.yml do).")
     fi
 fi
 
