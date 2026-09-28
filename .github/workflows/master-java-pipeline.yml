@@ -129,6 +129,7 @@ jobs:
 
   verify:
     uses: ./.github/workflows/java-verify.yml
+    needs: build
     permissions:
       checks: write
       security-events: write
