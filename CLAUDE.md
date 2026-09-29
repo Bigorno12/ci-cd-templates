@@ -93,11 +93,11 @@ Two parallel trees, one per language; `tag.yml` and `deploy-gitops.yml` are shar
 master-java-pipeline.yml        one of two entry points consumers call
 ├─ java-build.yml                     test-compile · reject tracked .env          [contents: read]
 ├─ java-dependency-graph.yml           needs: build · push only · off critical path [contents: write]
-├─ java-verify.yml   ─────────►  java-lint.yml · java-unit-tests.yml · java-integration-tests.yml · java-security.yml
+├─ java-verify.yml   needs: build ─►  java-lint.yml · java-unit-tests.yml · java-integration-tests.yml · java-security.yml
 ├─ java-release.yml  ─────────►  tag.yml (PRs to main) · java-docker.yml ──► deploy-gitops.yml (push to main)
 └─ build-gate                    if: always() · fails on any failure/cancelled
 ```
-`java-verify.yml` and `java-release.yml` are **pure grouping layers** — no steps, only job plumbing and permission narrowing. All five stage-① jobs start at t=0: `verify` has no `needs: build`, because every job checks out and compiles for itself.
+`java-verify.yml` and `java-release.yml` are **pure grouping layers** — no steps, only job plumbing and permission narrowing. `verify` carries `needs: build`, so the four verify jobs wait for the compile gate and then run in parallel with each other — a broken compile fails once, in `build`, instead of four times over. **The Python tree still has no `needs: build` on `verify`** (all five of its stage-① jobs start at t=0); the two trees differ on this one edge.
 
 - `build` runs `test-compile`, not `package` — its output is discarded, so jar assembly was pure cost ahead of the serial verify phase. Real packaging failures surface in `docker-publish`.
 - `dependency-graph` is its own workflow so `build` can stay `contents: read`, and so `release` doesn't wait on bookkeeping (`needs:` on a reusable workflow waits for *every* job inside it).

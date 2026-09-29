@@ -152,12 +152,17 @@ For the **Python** pipeline, substitute the first three:
 
 ```mermaid
 flowchart TD
-    subgraph s1["① Build + Verify — every job starts at t=0"]
+    subgraph s1["① Build → Verify"]
+        direction TB
         B["build<br/>test-compile · reject .env"]
-        L["lint"]
-        U["unit-tests"]
-        I["integration-tests"]
-        SEC["security<br/>CodeQL · Gitleaks · Trivy"]
+        subgraph s1b["verify — needs build · four jobs in parallel"]
+            direction LR
+            L["lint"]
+            U["unit-tests"]
+            I["integration-tests"]
+            SEC["security<br/>CodeQL · Gitleaks · Trivy"]
+        end
+        B --> s1b
     end
 
     DG["dependency-graph<br/>needs build only · push events · off critical path"]
@@ -200,13 +205,16 @@ and egress diagrams.
 
 Stage ① is a grouping, not a single workflow: `build` and `verify` are separate
 caller jobs in `master-java-pipeline.yml`, and `verify` fans out into `lint`,
-`unit-tests`, `integration-tests` and `security`. All five start at t=0 — verify
-has no `needs: build`, because nothing in it consumes build's output (every job
-checks out and compiles for itself). `dependency-graph` is the one job with a
-narrower dependency: it needs `build` alone, and nothing needs it back, so it
-hangs off the side rather than sitting on the critical path. `release` gates on
-both `build` and `verify`, so nothing publishes unless the compile gate and
-every verification job passed.
+`unit-tests`, `integration-tests` and `security`. `verify` carries
+`needs: build`, so the four verification jobs wait for the compile gate and then
+run in parallel with each other — a broken compile fails once, in `build`,
+instead of four times over. `dependency-graph` needs `build` alone, and nothing
+needs it back, so it hangs off the side rather than sitting on the critical
+path. `release` gates on both `build` and `verify`, so nothing publishes unless
+the compile gate and every verification job passed.
+
+The **Python** entry point still starts its four verify jobs at t=0: `verify`
+there has no `needs: build`. The two trees differ on this one edge.
 
 | Workflow | Purpose |
 |----------|---------|

@@ -11,7 +11,7 @@ package "consumer repo" as CALLER #EEEEEE {
 
 [master-java-pipeline.yml] as M <<workflow_call>> #FFFFFF
 
-package "① build + verify — every job starts at t=0" as S1 #E8F0FE {
+package "① build → verify — verify gates on build" as S1 #E8F0FE {
   [java-build.yml] as B <<test-compile · reject .env>>
   package "java-verify.yml — grouping only, no steps" as V #E6F4EA {
     [java-lint.yml] as L
@@ -38,6 +38,7 @@ M --> DG
 M --> S2
 
 B --> DG : needs
+B --> V : needs
 B --> S2 : needs
 V --> S2 : needs
 D --> G : needs\n+ image-digest output
@@ -63,10 +64,15 @@ note top of M
 end note
 
 note right of S1
-  **verify has NO needs: build.**
-  Nothing in it consumes build's output —
-  every job checks out and compiles for
-  itself, so all five start at t=0.
+  **verify has needs: build.**
+  The four verify jobs wait for the compile
+  gate, then run in parallel with each other —
+  a broken compile fails once, in build,
+  instead of four times over.
+
+  master-python-pipeline.yml still has no
+  needs: build on verify — the two trees
+  differ on this one edge.
 end note
 
 note right of DG
