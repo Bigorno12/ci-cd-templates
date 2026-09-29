@@ -76,7 +76,7 @@ jobs:
           fi
 
       - name: Setup Python Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@9359c08a9c95b971c1aa203630f24d8738dbe80c
+        uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@2b7a88a1373d871b00398939a8eb9b684420acb6
         with:
           python-version: ${{ inputs.python-version }}
           cache-type: ${{ inputs.cache-type }}

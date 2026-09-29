@@ -91,7 +91,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Java Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@93d0be296117da871f06b61fbcb643c7fcb2d280
+        uses: Bigorno12/ci-cd-templates/.github/actions/java-setup@2b7a88a1373d871b00398939a8eb9b684420acb6
         with:
           java-version: ${{ inputs.java-version }}
           cache-type: ${{ inputs.cache-type }}
@@ -257,7 +257,7 @@ jobs:
 
       - name: GHCR Cleanup (With Auto-retry)
         if: github.event_name != 'pull_request'
-        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@93d0be296117da871f06b61fbcb643c7fcb2d280
+        uses: Bigorno12/ci-cd-templates/.github/actions/ghcr-cleanup@2b7a88a1373d871b00398939a8eb9b684420acb6
         with:
           image-name: ${{ github.event.repository.name }}
           pat-token: ${{ secrets.CR_PAT || github.token }}
