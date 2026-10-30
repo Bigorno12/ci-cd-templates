@@ -81,7 +81,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Python Environment
-        uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@148f9c40c3a0f18eade176de4bbb920b3faf8290
+        uses: Bigorno12/ci-cd-templates/.github/actions/python-setup@fb0a74e1dde846aa7ee1af11743b23dd260870e6
         with:
           python-version: ${{ inputs.python-version }}
           cache-type: ${{ inputs.cache-type }}
