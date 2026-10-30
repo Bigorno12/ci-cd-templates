@@ -78,7 +78,7 @@ jobs:
         run: pytest -m "not integration" --junitxml=reports/TEST-unit.xml
 
       - name: Publish Unit Tests Report (pytest)
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2
+        uses: dorny/test-reporter@d1b5dff021aa968b288b02285a8bf47471c5928a
         if: always()
         continue-on-error: true
         with:
