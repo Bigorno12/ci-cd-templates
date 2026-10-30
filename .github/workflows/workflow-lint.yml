@@ -150,15 +150,19 @@ jobs:
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
             github-releases.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482
+        env:
+          ZIZMOR_VERSION: 1.31.1
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b
         with:
-          version: '1.16.3'
+          version: ${{ env.ZIZMOR_VERSION }}
           persona: regular
           min-severity: medium
           advanced-security: false
