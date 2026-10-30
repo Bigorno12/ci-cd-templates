@@ -151,7 +151,7 @@ jobs:
             release-assets.githubusercontent.com:443
             github-releases.githubusercontent.com:443
             pypi.org:443
-            files.pythonhosted.org:433
+            files.pythonhosted.org:443
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
