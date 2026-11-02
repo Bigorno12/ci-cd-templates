@@ -111,7 +111,7 @@ jobs:
           password: ${{ secrets.CR_PAT || github.token }}
 
       - name: Install pack CLI
-        uses: buildpacks/github-actions/setup-pack@a96fc9720ee9ccf19d4c87c3de9c344a2c404c29
+        uses: buildpacks/github-actions/setup-pack@324e5c43145b68f60bf74a269f5ba7b2969e03db
 
       - name: Build and Push (pack)
         id: build
