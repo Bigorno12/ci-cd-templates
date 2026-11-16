@@ -9,15 +9,17 @@ This file is deliberately lean: it holds only what is unique or a guardrail. Eve
 
 ## Project Overview
 
-Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Java 25) and Python (pip + pytest + ruff, CPython 3.14) consumers. There is **no application code and no test suite** — every file is CI configuration, so "build" and "test" here mean *lint the YAML and reason about what happens on a runner*. Consumers call one entry point (`master-java-pipeline.yml` or `master-python-pipeline.yml`) instead of duplicating pipeline logic; `Bigorno12/monolith-architecture` is the reference consumer.
+Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Java 25) consumers. There is **no application code and no test suite** — every file is CI configuration, so "build" and "test" here mean *lint the YAML and reason about what happens on a runner*. Consumers call one entry point, `master-java-pipeline.yml`, instead of duplicating pipeline logic; `Bigorno12/monolith-architecture` is the reference consumer.
+
+The Python pipeline (`master-python-pipeline.yml` and its nine `python-*` workflows) has been **removed**. Only the `python-setup` composite action remains; nothing in this repo calls it.
 
 **Pattern: templates, not an orchestrator.** Every level is `workflow_call` composition; GitHub's scheduler owns the dependency graph, each leaf is its own status check, `permissions` intersect down the tree, and no PAT is needed. Never introduce a dispatch-and-poll controller job — a new stage is another `workflow_call` leaf. `build-gate` aggregates results but coordinates nothing. Full rationale: [README → Design pattern](README.md#design-pattern-templates-not-an-orchestrator).
 
 **Structure:** GitHub forbids subdirectories under `.github/workflows`, so the workflow files are necessarily flat — the hierarchy lives in `uses:` edges, not in folders.
-- `.github/workflows/` — 24 workflows: 2 entry points (Java, Python), 4 grouping layers, 16 leaf modules, 2 for this repo's own CI. `tag.yml` and `deploy-gitops.yml` are language-agnostic and shared by both entry points rather than duplicated.
-- `.github/actions/` — 4 composite actions (`java-setup`, `python-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path
+- `.github/workflows/` — 14 workflows: 1 entry point, 2 grouping layers, 9 leaf modules, 2 for this repo's own CI. `tag.yml` and `deploy-gitops.yml` are language-agnostic, hence unprefixed.
+- `.github/actions/` — 4 composite actions (`java-setup`, `python-setup`, `ghcr-cleanup`, `cache-cleanup`), consumed by **SHA-pinned self-reference**, not by path. `python-setup` and `cache-cleanup` have no call sites here.
 - `.githook/` — `pre-commit` (gitleaks) + `pre-push` (actionlint + yamllint), mirroring CI so failures surface before a runner
-- `docs/` — 6 hand-maintained PlantUML diagrams (incl. `docs/c4/`), rendered in [ARCHITECTURE.md](ARCHITECTURE.md) via the PlantUML proxy
+- `docs/` — 5 hand-maintained PlantUML diagrams (incl. `docs/c4/`), rendered in [ARCHITECTURE.md](ARCHITECTURE.md) via the PlantUML proxy
 - `.claude/` — agent config: 3 single-focus reviewers, the `/my-command` gate, the workflow rule, and 2 vendored hooks wired by `settings.json`
 - Each leaf workflow is deliberately self-contained: its own `harden-runner` allowlist, its own checkout/JDK preamble, readable end-to-end without following indirection
 
@@ -38,7 +40,7 @@ Reusable **GitHub Actions CI/CD templates** for Java (Maven + Spring Boot 4, Jav
 
 ## Token Discipline
 
-Most work here is I/O over 24 small, similar YAML files — spend reasoning tokens, not reading tokens:
+Most work here is I/O over 14 small, similar YAML files — spend reasoning tokens, not reading tokens:
 
 - Prefer the grep one-liners below over reading workflows wholesale; to change a leaf, read only that leaf, its grouping layer, and the master pipeline.
 - Fan-out questions ("which leaves allowlist host X?", "where is input Y threaded?") go to the **Explore** subagent — bring back conclusions, not file dumps. The three reviewers already run as parallel subagents for the same reason.
@@ -66,13 +68,13 @@ Don't confuse these with `.claude/hooks/` — a different mechanism (Claude Code
 
 ### Finding what a change touches
 ```sh
-grep -rn "Bigorno12/ci-cd-templates" .github/   # all 14 composite-action pins (7 java-setup, 5 python-setup, 2 ghcr-cleanup)
-grep -rn "uses: \./" .github/                   # both workflow_call call graphs
+grep -rn "Bigorno12/ci-cd-templates" .github/   # all 8 composite-action pins (7 java-setup, 1 ghcr-cleanup)
+grep -rn "uses: \./" .github/                   # the workflow_call call graph
 grep -rn "allowed-endpoints" .github/workflows/ # every egress allowlist
 
 # Does a pinned commit actually contain the action? Non-zero = dangling pin,
 # which lints clean and fails at runtime with "action not found".
-git cat-file -e <pinned-sha>:.github/actions/python-setup/action.yml
+git cat-file -e <pinned-sha>:.github/actions/java-setup/action.yml
 ```
 
 ### Verifying a published image (consumer side)
@@ -87,10 +89,10 @@ cosign verify-attestation --type cyclonedx  ...same flags...  # the Syft SBOM
 
 ### Call graph — three levels of `workflow_call`
 
-Two parallel trees, one per language; `tag.yml` and `deploy-gitops.yml` are shared, not forked. Counting the consumer's caller, a run is 4 of the 10 connected workflow levels GitHub allows — ample headroom.
+One tree. Counting the consumer's caller, a run is 4 of the 10 connected workflow levels GitHub allows — ample headroom.
 
 ```
-master-java-pipeline.yml        one of two entry points consumers call
+master-java-pipeline.yml        the entry point consumers call
 ├─ java-build.yml                     test-compile · reject tracked .env          [contents: read]
 ├─ java-dependency-graph.yml           needs: build · push only · off critical path [contents: write]
 ├─ java-verify.yml   ─────────►  java-lint.yml · java-unit-tests.yml · java-integration-tests.yml · java-security.yml
@@ -103,32 +105,17 @@ master-java-pipeline.yml        one of two entry points consumers call
 - `dependency-graph` is its own workflow so `build` can stay `contents: read`, and so `release` doesn't wait on bookkeeping (`needs:` on a reusable workflow waits for *every* job inside it).
 - `build-gate` treats `skipped` as a pass — `dependency-graph` is push-only and release jobs skip per-event.
 - `auto-release.yml` and `workflow-lint.yml` are **this repo's** CI, not part of the consumer pipeline.
-
-```
-master-python-pipeline.yml       the Python entry point
-├─ python-build.yml              compileall · reject tracked .env             [contents: read]
-├─ python-dependency-graph.yml    needs: build · push only · pip graph          [contents: write]
-├─ python-verify.yml  ────►  python-lint · python-unit-tests · python-integration-tests · python-security
-├─ python-release.yml ────►  tag.yml (shared) · python-docker.yml ──► deploy-gitops.yml (shared)
-└─ build-gate                    identical twin of the Java one
-```
-The Python tree mirrors the Java one file-for-file, with these deliberate asymmetries:
-- `python-security.yml` takes **no** `python-version`/`cache-type`: CodeQL runs `build-mode: none`, so unlike the Java SAST job there is no compile to set an interpreter up for.
-- `python-docker.yml` drives the `pack` CLI instead of `spring-boot:build-image`, and resolves its digest with `docker buildx imagetools inspect` because `pack --publish` leaves nothing in the local daemon.
-- `python-integration-tests.yml` treats pytest exit code 5 ("no tests collected") as a pass — a repo with no `integration`-marked tests is valid. The unit job does not.
-- `python-setup` writes nothing to `$GITHUB_ENV`, so it needs no `github-env` ignore.
+- `python-setup` (CPython + pip cache + requirements install) is the one remnant of the removed Python tree. It is unwired, like `cache-cleanup`, and writes nothing to `$GITHUB_ENV`. Don't wire it into a Java leaf, and don't delete it without asking.
 
 ### Reference styles, pins, plumbing
-Workflows reference each other by **local path** (same-commit effect); composite actions by **SHA-pinned self-reference** (14 call sites, three different SHAs) — so editing an action is a **two-commit change** (merge, then bump every pin) and a brand-new action's first pins are dangling ("action not found"). Inputs thread through all three levels or none (a new input is breaking for old pins); `permissions` intersect down the tree, unset = `none`. The full rules, **current pin state**, and verify commands live in [`.claude/rules/workflow-rule.md`](.claude/rules/workflow-rule.md) — re-verify with `git log <sha>..HEAD -- .github/actions/<name>/` and `git cat-file -e` rather than trusting any prose snapshot.
+Workflows reference each other by **local path** (same-commit effect); composite actions by **SHA-pinned self-reference** (8 call sites, currently one shared SHA) — so editing an action is a **two-commit change** (merge, then bump every pin) and a brand-new action's first pins are dangling ("action not found"). Inputs thread through all three levels or none (a new input is breaking for old pins); `permissions` intersect down the tree, unset = `none`. The full rules, **current pin state**, and verify commands live in [`.claude/rules/workflow-rule.md`](.claude/rules/workflow-rule.md) — re-verify with `git log <sha>..HEAD -- .github/actions/<name>/` and `git cat-file -e` rather than trusting any prose snapshot.
 
 ## Configuration & Inputs
 
-The two master pipelines are the public API; the authoritative input surface is their `workflow_call.inputs` blocks, documented for consumers in the README. Non-obvious facts only:
+The master pipeline is the public API; the authoritative input surface is its `workflow_call.inputs` block, documented for consumers in the README. Non-obvious facts only:
 
-- Defaults: Java `"25"`/`"maven"`, Python `"3.14"`/`"pip"` (the Python version is also passed to the buildpack as `BP_CPYTHON_VERSION`).
+- Defaults: `"25"`/`"maven"`.
 - `build-egress-policy` covers build **and** verify; `release-egress-policy` covers docker + gitops (drop to `"audit"` only while tuning buildpack egress). Five `extra-*-endpoints` inputs extend per-phase allowlists.
-- `requirements` must exist even if empty — it keys the pip cache, and `setup-python` errors when the glob matches nothing. `dev-requirements` must provide `pytest` + `ruff`; `python-dependency-graph.yml` passes `""` so dev tooling stays out of the shipped graph.
-- `builder-image` is **deliberately** a mutable tag — Paketo republishes it for CVE fixes; pin a digest for reproducibility.
 - `signer-identity-regexp` defaults to the caller's owner, which only lines up inside the `Bigorno12` org.
 - Secrets are all optional and fall back to `github.token`: `CR_PAT` (GHCR push + cleanup), `GITOPS_PAT` (manifest push), `extra-secrets` (JSON object → env vars for integration tests; `github_token` is filtered out, and `toJSON(secrets)` must never be passed).
 - Concurrency: `${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress` everywhere **except** `main`.
@@ -156,8 +143,7 @@ Non-negotiable controls; a PR that weakens one needs an explicit reason.
 The full contract — per-workflow purpose tables and setup requirements — is in the [README](README.md); update it in the same commit as any behavior change. Breaking any of these breaks every consumer:
 
 - `mvnw` + `pom.xml` at the root; a Spotless-configured build (`spotless:check` is the whole lint job); test reports at `**/target/*-reports/TEST-*.xml`
-- Python: `requirements.txt` at the root (must exist), `requirements-dev.txt` providing `pytest` + `ruff`, tests split by a registered `integration` pytest marker, **no Dockerfile** (the Paketo builder must detect the app); reports at `reports/TEST-*.xml`
-- No tracked `*.env` files except `.env.example` — the build leaves fail on any other; optional root `.trivyignore` is honored by the image scan
+- No tracked `*.env` files except `.env.example` — `java-build.yml` fails on any other; optional root `.trivyignore` is honored by the image scan
 - For GitOps: a manifest at `gitops-manifest-path` containing an `image: ghcr.io/<owner>/<repo>:...` line (updated by `sed`)
 - The caller must grant every permission the pipeline needs; a missing `id-token: write` silently breaks keyless signing
 
@@ -166,16 +152,16 @@ Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (push
 ## Releasing These Templates
 
 - `auto-release.yml` runs on every push to `main`: patch-bump semver tag, GitHub release with generated notes, delete all but the 10 newest releases. There is no manual release step.
-- Consumers pin `@<sha>`, not a tag — so a change is only live for them once they bump. Old pins keep working, which is why input renames are breaking. One release covers both pipelines; there is no per-language versioning.
+- Consumers pin `@<sha>`, not a tag — so a change is only live for them once they bump. Old pins keep working, which is why input renames are breaking.
 - Commits follow `type(scope): subject`; history is PR merges only, no direct pushes to `main`.
-- **Renaming a workflow file is a breaking change for consumers, and a silent one** — it fails with "workflow was not found" only once the consumer bumps their pin. The `master-maven-pipeline.yml` → `master-java-pipeline.yml` rename is exactly this; `tag.yml` and `deploy-gitops.yml` were left alone because both trees share them.
+- **Renaming or deleting a workflow file is a breaking change for consumers, and a silent one** — it fails with "workflow was not found" only once the consumer bumps their pin. The `master-maven-pipeline.yml` → `master-java-pipeline.yml` rename and the removal of `master-python-pipeline.yml` are exactly this; both carry a README migration note.
 
 ## Development Notes
 
 ### Workflow Style
 - Match the existing shape: `on: workflow_call` → inputs (egress trio first, then `java-version`/`cache-type`, then behavior) → `secrets` with a `description` explaining the fallback → one job with `name`, `runs-on: ubuntu-latest`, `timeout-minutes`, `permissions`.
 - `timeout-minutes` on **every** job (5 for gates/tagging, 10–15 for builds, 30 for CodeQL).
-- Maven is always `./mvnw -B -ntp -T 1C ...`, preceded by `chmod +x mvnw`. Python leaves have no wrapper step — `python-setup` leaves `pytest`/`ruff` on `PATH`, so the run line is just `pytest …` / `ruff check .`.
+- Maven is always `./mvnw -B -ntp -T 1C ...`, preceded by `chmod +x mvnw`.
 - Image/packaging runs skip the quality plugins the dedicated jobs already cover: `-Dmaven.test.skip -Denforcer.skip -Dspotless.check.skip -Djacoco.skip -Dcheckstyle.skip`.
 - Shell idioms to reuse rather than reinvent: `set -euo pipefail`, lowercase repo via `tr '[:upper:]' '[:lower:]'`, 7-char SHA via `cut -c1-7`, `# shellcheck disable=SC2086` where word-splitting an args string is intentional, `::error::`/`::warning::` for annotations.
 - Comments explain **why** a structure exists (why a gate runs first, why a job isn't nested). Keep them; they're the reason this repo is auditable.
@@ -185,8 +171,8 @@ Image tags: `pr-<n>` (built, **not** pushed, not signed) and `main-<sha7>` (push
 - Never add a step above `harden-runner`, and never above the `cosign verify` gate in `deploy-gitops.yml`
 - Never set `persist-credentials: true` (or add a `token:`) on a checkout in a job that doesn't push
 - Never pass `toJSON(secrets)` into `extra-secrets`; prefer Testcontainers so tests need no secrets at all
-- Never fork a `python-tag.yml` or `python-deploy-gitops.yml` — those two are language-agnostic and shared by both entry points on purpose
-- Never add an input to a leaf just to restore symmetry between the two trees; `python-security.yml` takes no `python-version` because nothing in it runs an interpreter
+- Never fork a per-language copy of `tag.yml` or `deploy-gitops.yml` — they are language-agnostic; a future language tree calls the same two files
+- Never add an input to a leaf that nothing in it reads
 - Never widen an allowlist by switching a phase to `audit` as the fix — add the specific host
 - Never widen an allowlist just because `allowlist-drift` warned; the job names a suspect, an observed harden-runner denial is what justifies the host
 - Never add a controller job that dispatches workflows and polls them — this is the template pattern; a new stage is another `workflow_call` leaf, not an orchestrator

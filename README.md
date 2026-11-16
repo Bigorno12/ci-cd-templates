@@ -1,6 +1,6 @@
 # ci-cd-templates
 
-Reusable GitHub Actions CI/CD templates for Java (Maven + Spring Boot) and Python (pip + pytest) projects. Consuming repos call these workflows instead of duplicating pipeline logic. Every job runs behind `step-security/harden-runner` with a configurable egress policy and `disable-sudo: true`, third-party actions are pinned to commit SHAs, checkouts use `persist-credentials: false` unless the job genuinely pushes, and per-job `permissions` are scoped to least privilege.
+Reusable GitHub Actions CI/CD templates for Java (Maven + Spring Boot) projects. Consuming repos call these workflows instead of duplicating pipeline logic. Every job runs behind `step-security/harden-runner` with a configurable egress policy and `disable-sudo: true`, third-party actions are pinned to commit SHAs, checkouts use `persist-credentials: false` unless the job genuinely pushes, and per-job `permissions` are scoped to least privilege.
 
 ## Design pattern: templates, not an orchestrator
 
@@ -35,12 +35,9 @@ point in a workflow of your own.
 
 ## Usage
 
-Pick the entry point for your language — `master-java-pipeline.yml` or
-`master-python-pipeline.yml` — and call it from a workflow in your repo. Grant the caller
-the full set of permissions the pipeline needs — GitHub defaults an unset permission to
-`none`, so a missing `id-token: write` silently breaks keyless signing:
-
-### Java
+Call `master-java-pipeline.yml` from a workflow in your repo. Grant the caller the full set
+of permissions the pipeline needs — GitHub defaults an unset permission to `none`, so a
+missing `id-token: write` silently breaks keyless signing:
 
 ```yaml
 # A thin template consumer: one uses: job, no logic of its own.
@@ -83,42 +80,22 @@ Pin `@<sha>` to a template commit that includes the folded verification gate and
 an older pin fails with "invalid input". Individual workflows can also be called
 on their own via `workflow_call`.
 
+> **Removed:** the Python pipeline — `master-python-pipeline.yml` and every `python-*`
+> workflow — no longer exists. A caller pinned to an older SHA keeps working, but **the next
+> time you bump the SHA it fails with "workflow was not found"**. Stay on your current pin
+> or move to your own workflow; there is no drop-in replacement here. The
+> `.github/actions/python-setup` composite action is still published (see
+> [Shared actions](#shared-actions)).
+
 > **Renamed:** `master-maven-pipeline.yml` is now **`master-java-pipeline.yml`**, and every
-> Maven leaf carries a `java-` prefix (`build.yml` → `java-build.yml`, and so on) to sit
-> symmetrically beside the `python-` tree. Your existing pin keeps working — it points at a
-> commit where the old path still exists — but **the next time you bump the SHA you must
-> update the path too**, or the caller fails with "workflow was not found". Inputs, secrets
-> and behaviour are unchanged; this is a path rename only.
+> Maven leaf carries a `java-` prefix (`build.yml` → `java-build.yml`, and so on). Your
+> existing pin keeps working — it points at a commit where the old path still exists — but
+> **the next time you bump the SHA you must update the path too**, or the caller fails with
+> "workflow was not found". Inputs, secrets and behaviour are unchanged; this is a path
+> rename only.
 >
-> `tag.yml` and `deploy-gitops.yml` were deliberately *not* renamed: both pipelines share
-> them, so they are not Java-specific.
-
-### Python
-
-`master-python-pipeline.yml` is the same pipeline with the Java leaves swapped for
-pip/pytest/ruff/pack. The permissions block above is unchanged — only the `with:` differs:
-
-```yaml
-jobs:
-  run-entire-pipeline:
-    uses: Bigorno12/ci-cd-templates/.github/workflows/master-python-pipeline.yml@<sha>
-    secrets: inherit
-    with:
-      python-version: "3.14"
-      cache-type: "pip"
-      requirements: "requirements.txt"
-      dev-requirements: "requirements-dev.txt"   # must provide pytest + ruff
-      build-egress-policy: "block"
-      release-egress-policy: "block"   # drop to "audit" while tuning buildpack egress
-      pack-args: "--env BP_PIP_VERSION=latest"
-      test-args: "-k not_slow"
-      gitops-manifest-path: "infra/k8s/manifest/api.yaml"
-      signer-identity-regexp: "^https://github.com/Bigorno12/ci-cd-templates/"
-```
-
-The Java and Python entry points share `tag.yml` and `deploy-gitops.yml` verbatim — those
-two are language-agnostic — so the signing, verification and GitOps promotion behaviour is
-identical for both.
+> `tag.yml` and `deploy-gitops.yml` were deliberately *not* renamed: they are
+> language-agnostic, not Java-specific.
 
 ### What your repo must provide
 
@@ -133,20 +110,6 @@ one of them:
   `image: ghcr.io/<owner>/<repo>:...` line, which `deploy-gitops` rewrites with `sed`.
 - Optional: a root `.trivyignore`. `java-docker.yml` always passes `trivyignores: .trivyignore`
   to the image scan, so that is where CVE suppressions belong.
-
-For the **Python** pipeline, substitute the first three:
-
-- `requirements.txt` at the repository root (or point `requirements` elsewhere). It keys the
-  pip cache, so it must exist even if it is empty.
-- A `requirements-dev.txt` providing `pytest` and `ruff` — `python-lint.yml` is exactly
-  `ruff check` + `ruff format --check`, the way `java-lint.yml` is exactly `spotless:check`.
-- Tests split by a `pytest` marker named `integration`: the unit job runs
-  `-m "not integration"`, the integration job runs `-m integration`. Register the marker in
-  your `pyproject.toml`/`pytest.ini`. A repo with no integration-marked tests passes — that
-  job treats pytest's exit code 5 ("no tests collected") as a pass, not a failure.
-- `python-docker.yml` needs no Dockerfile: `pack build` uses the Paketo builder named by
-  `builder-image`. Your app must be something that builder can detect (a `requirements.txt`
-  plus an entrypoint it recognises).
 
 ## Pipeline
 
@@ -223,21 +186,6 @@ every verification job passed.
 | `deploy-gitops.yml` | Verify the image's Cosign signature, then bump its tag in a k8s manifest on push to `main` |
 | `auto-release.yml` | Auto-bump semver tag + GitHub release on push to `main` (keeps 10 newest) |
 
-The Python tree mirrors it file-for-file, minus the two it shares:
-
-| Workflow | Purpose |
-|----------|---------|
-| `master-python-pipeline.yml` | Python entry point; owns every input, plus `build-gate` |
-| `python-verify.yml` / `python-release.yml` | Grouping layers |
-| `python-build.yml` | `python -m compileall` fail-fast, reject committed `.env` |
-| `python-dependency-graph.yml` | Submit the pip dependency graph (push events only) |
-| `python-lint.yml` | `ruff check` + `ruff format --check` |
-| `python-unit-tests.yml` | `pytest -m "not integration"` + JUnit reports |
-| `python-integration-tests.yml` | `pytest -m integration` (curated secrets via `extra-secrets`) |
-| `python-security.yml` | CodeQL (`python`, `build-mode: none`) + Gitleaks + Trivy fs scan |
-| `python-docker.yml` | `pack build` → GHCR; Trivy scan, SBOM, Cosign signature + attestation |
-| `tag.yml` · `deploy-gitops.yml` | **Shared with the Java pipeline — not duplicated** |
-
 `tag` runs only on PRs to `main`; `deploy-gitops` only on push to `main`. `build-gate` fails if any job failed or was cancelled.
 
 `dependency-graph` is a separate workflow, not a job inside `java-build.yml`, for two
@@ -308,7 +256,7 @@ files are necessarily flat. Each workflow is self-contained: it declares its own
 end-to-end without following indirection.
 
 - `.github/actions/java-setup` — installs Temurin JDK, configures Maven cache, sets `MAVEN_OPTS` (rejects multi-line values so nothing extra can be injected into `GITHUB_ENV`).
-- `.github/actions/python-setup` — installs CPython, configures the pip cache (keyed on both requirements files), and installs them. Unlike `java-setup` it writes nothing to `GITHUB_ENV`.
+- `.github/actions/python-setup` — installs CPython, configures the pip cache (keyed on both requirements files), and installs them. Unlike `java-setup` it writes nothing to `GITHUB_ENV`. No workflow here calls it any more (the Python pipeline was removed); reference it from your own workflow as `Bigorno12/ci-cd-templates/.github/actions/python-setup@<sha>`.
 - `.github/actions/ghcr-cleanup` — retains the 3 most recent GHCR images (with retry), then prunes orphaned cosign artifacts. Retention is scoped to **tagged** versions and excludes `sha256-*` tags (`tag-selection: tagged`, `image-tags: '!sha256-*'`), so a cosign signature or SBOM attestation is never counted as one of the three kept "images" — counting them evicted live images and left `docker pull` resolving to a deleted digest. A follow-up step then deletes every `sha256-<digest>` referrer tag whose subject image is already gone, plus the untagged manifests that referrer points at. Push-only and `continue-on-error`: if the token cannot list or delete package versions it emits `::warning::` and leaves the release green.
 - `.github/actions/cache-cleanup` — deletes Actions caches outside the retention policy: anything not on `keep-ref` (PR/feature branches) plus `keep-ref` caches older than `retention-days`. Not wired into the master pipeline; call it from your own scheduled workflow with a token that has `actions: write`.
 
@@ -356,20 +304,21 @@ and still reports success.
 
 **Dependabot** (`.github/dependabot.yml`) opens one grouped `github-actions` PR
 weekly, with a cooldown before a fresh release is proposed. Because every `uses:`
-is SHA-pinned, these PRs are how pins get advanced.
+is SHA-pinned, these PRs are how pins get advanced — including the composite-action
+self-references, which it tracks through this repo's release tags.
 
 **Editing a composite action is a two-commit change.** The actions under
 `.github/actions/` are consumed by SHA-pinned *self-reference*
 (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`), because inside a reusable
 workflow a relative action path resolves against the caller's checkout rather than this
 repo. Merge the action change first, then a second commit bumping every pin — until then
-the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 14 call sites
-(7 `java-setup`, 5 `python-setup`, 2 `ghcr-cleanup`). They do not share a SHA — bump only
+the edit is inert. `grep -rn "Bigorno12/ci-cd-templates" .github/` lists all 8 call sites
+(7 `java-setup`, 1 `ghcr-cleanup`); `python-setup` and `cache-cleanup` have none. Bump only
 the pins for the action you changed.
 
-All 14 pins are currently **current and resolvable** — `java-setup@13d9613`,
-`python-setup@869e85b`, `ghcr-cleanup@04babd9` — with no action modified since the commit
-it is pinned to. The tagged-only retention and orphan pruning are live for consumers.
+All 8 pins are currently **current and resolvable** — both actions on `fb0a74e` — with
+no action modified since that commit. The tagged-only retention and orphan pruning are
+live for consumers.
 
 ### Further reading
 

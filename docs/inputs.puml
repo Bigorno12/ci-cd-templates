@@ -78,23 +78,6 @@ note bottom of M
   consumer bumps their pin — detached from the cause.
 end note
 
-note left of M
-  **master-python-pipeline.yml has the identical
-  shape**, differing only in these inputs:
-    java-version · cache-type
-      → python-version · cache-type
-    (new) requirements · dev-requirements
-    spring-boot-args → pack-args
-    (new) builder-image
-  The egress trio, test-args, gitops-manifest-path
-  and signer-identity-regexp are verbatim the same.
-
-  Deliberately ABSENT there: python-security.yml
-  takes no python-version/cache-type — CodeQL runs
-  build-mode "none" and nothing in it runs an
-  interpreter. Do not add inputs nothing reads.
-end note
-
 note bottom of NP
   **permissions intersect at every level.**
   A reusable workflow can never exceed what the
