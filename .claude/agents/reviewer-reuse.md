@@ -24,14 +24,11 @@ second copy of a *pipeline mechanism*, not a second copy of a Java class.
 - **JDK + Maven cache + MAVEN_OPTS** → `.github/actions/java-setup`. A raw
   `actions/setup-java` block, a separate `actions/cache` for `~/.m2`, or an
   `echo "MAVEN_OPTS=…" >> $GITHUB_ENV` in a workflow all duplicate it.
-- **CPython + pip cache + requirements install** → `.github/actions/python-setup`. A raw
-  `actions/setup-python` block, a separate `actions/cache` for `~/.cache/pip`, or a
-  `python -m pip install -r requirements.txt` step in a leaf all duplicate it. Passing
-  `dev-requirements: ""` is the supported way to skip test tooling — a second action or a
-  conditional install step is not.
-- **The language-agnostic release tail** → `tag.yml` and `deploy-gitops.yml` are called by
-  **both** master pipelines. Flag any `python-tag.yml` / `python-deploy-gitops.yml`, or any
-  new leaf that re-implements PR tagging or manifest bumping for a second language.
+- **CPython + pip cache + requirements install** → `.github/actions/python-setup`. Unwired
+  since the Python pipeline was removed, but still the thing to reuse: a raw
+  `actions/setup-python` block or a hand-rolled `pip install -r` step duplicates it.
+- **The language-agnostic release tail** → `tag.yml` and `deploy-gitops.yml`. Flag any
+  per-language copy, or any new leaf that re-implements PR tagging or manifest bumping.
 - **GHCR image retention + cosign referrer pruning** → `.github/actions/ghcr-cleanup`
   (keeps the 3 most recent *tagged* versions, excluding `sha256-*`; retries once after 60s;
   then prunes referrer tags whose subject image is gone). A hand-rolled
@@ -53,15 +50,13 @@ second copy of a *pipeline mechanism*, not a second copy of a Java class.
 - **Trivy DB caching** → the `Resolve Trivy DB cache date` + `actions/cache/restore` +
   `actions/cache/save` trio (`trivy-db-<UTC date>`, saved only on `main`). A new scan
   that re-downloads the DB, or invents its own key shape.
-- **Test report publishing** → `dorny/test-reporter` with `if: always()` and
-  `continue-on-error: true`. Only the `path`/`name` differ per language
-  (`**/target/*-reports/TEST-*.xml` for Maven, `reports/TEST-*.xml` for pytest); both use
-  `reporter: java-junit`, since pytest's `--junitxml` is JUnit XML. A new SARIF/JSON
-  reporting path for the same reports is duplication.
-- **Aggregate result gating** → the `build-gate` job in each master pipeline. A second
-  "check the results" job duplicates it; add the phase to `build-gate`'s `needs:` **and**
-  its `RESULTS` array instead. The two `build-gate` jobs are intentional twins — one per
-  entry point — not duplication to collapse.
+- **Test report publishing** → `dorny/test-reporter` with `if: always()`,
+  `continue-on-error: true` and `reporter: java-junit` over
+  `**/target/*-reports/TEST-*.xml`. A new SARIF/JSON reporting path for the same reports
+  is duplication.
+- **Aggregate result gating** → the `build-gate` job in `master-java-pipeline.yml`. A
+  second "check the results" job duplicates it; add the phase to `build-gate`'s `needs:`
+  **and** its `RESULTS` array instead.
 - **Signer identity default** → the fallback expression inside `deploy-gitops.yml`
   (`^https://github\.com/${OWNER}/[^/]+/\.github/workflows/`). Don't re-derive an owner
   regexp anywhere else; thread `signer-identity-regexp`.
@@ -71,8 +66,8 @@ second copy of a *pipeline mechanism*, not a second copy of a Java class.
   gratuitous divergence.
 - **Pin bumps** → Dependabot's grouped weekly `github-actions` PR. A hand-bumped
   third-party SHA in an unrelated PR duplicates that channel (the exception is the
-  deliberate second commit that bumps the `java-setup`/`python-setup`/`ghcr-cleanup`
-  self-references after editing a composite action).
+  deliberate second commit that bumps the `java-setup`/`ghcr-cleanup` self-references
+  after editing a composite action).
 
 Also flag **input-block twins**: the same `workflow_call` input copy-pasted into a leaf
 under a new name, an input declared in a leaf but never threaded from the master
@@ -83,13 +78,9 @@ gate that `java-release.yml` already applies.
 
 - Confirm with `rg`/`grep` that the thing to reuse exists; cite it by path.
 - **Do not flag the deliberate per-workflow preamble.** Every leaf repeating
-  `harden-runner` → `checkout` → `java-setup` → `chmod +x mvnw` (or `harden-runner` →
-  `checkout` → `python-setup`) is a design decision: each workflow must be readable
-  end-to-end and carry its own allowlist. Only flag duplication that is *not* that preamble.
-- **Do not flag the Java and Python trees as duplicates of each other.** They are parallel
-  by design — same shape, different toolchain. What *is* a finding: a Python leaf that
-  re-implements something already shared (`tag.yml`, `deploy-gitops.yml`, `ghcr-cleanup`,
-  the Trivy cache trio, the `image-digest` output contract) rather than calling it.
+  `harden-runner` → `checkout` → `java-setup` → `chmod +x mvnw` is a design decision: each
+  workflow must be readable end-to-end and carry its own allowlist. Only flag duplication
+  that is *not* that preamble.
 - **Do not propose replacing a composite action's absolute pin with `./`.** Inside a
   reusable workflow, a relative action path resolves against the checked-out workspace —
   the *consumer's* code — not this repo, so

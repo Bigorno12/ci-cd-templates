@@ -31,9 +31,6 @@ cache misses, or re-downloads** — not CPU.
 **Caching**
 - `actions/setup-java` without the `cache:` input, or a JDK step that bypasses
   `java-setup` (and so its Maven cache).
-- `actions/setup-python` without `cache:`, or a step that bypasses `python-setup`. Its
-  `cache-dependency-path` deliberately keys on **both** requirements files — dropping the
-  dev one means a new test dependency silently reuses a stale cache.
 - A cache key containing `github.sha`, a timestamp, or `github.run_id` → never hits.
 - A Trivy/Syft DB fetched without the `trivy-db-<UTC date>` restore/save pair, or a
   `cache/save` that runs on PRs — saves are restricted to `main` on purpose, so PR runs
@@ -49,16 +46,6 @@ cache misses, or re-downloads** — not CPU.
 - `clean` where nothing stale exists (a fresh runner checkout), or a full `verify` where
   `test`/`test-compile` proves the same thing.
 - Dropping `-Dsurefire.skip=true` from integration tests → unit tests run twice.
-
-**Python invocations**
-- `pytest` run without the marker split — the unit job is `-m "not integration"` and the
-  integration job is `-m integration`. Dropping either makes the two jobs run the same
-  tests twice, the Python analogue of losing `-Dsurefire.skip=true`.
-- A `pip install` of tooling a leaf already gets from `dev-requirements` via `python-setup`.
-- `python-dependency-graph.yml` passes `dev-requirements: ""` on purpose: test tooling is
-  not a shipped dependency and installing it is pure cost. Flag a diff that restores it.
-- `pack build` without `--publish` on a push event (builds into the local daemon, then the
-  digest resolve fails), or a builder image re-pulled when `--pull-policy` could avoid it.
 
 **Checkout and git**
 - `fetch-depth: 0` where the default `1` suffices. Full history is needed only for the
@@ -92,9 +79,7 @@ cache misses, or re-downloads** — not CPU.
   sharing a compiled artifact between reusable workflows unless you can show
   upload+download beats recompiling.
 - `java-security.yml`'s CodeQL compile necessarily repeats `java-build.yml`'s compile —
-  `build-mode: manual` requires it. Not a finding. The Python side has no such excuse:
-  `python-security.yml` uses `build-mode: none` and sets up no interpreter at all, so a
-  diff that adds `python-setup` or an install step **to that leaf** is a real finding.
+  `build-mode: manual` requires it. Not a finding.
 - `ghcr-cleanup`'s retry (`continue-on-error` → `sleep 60` → second attempt) is
   deliberate resilience against GHCR rate limits, not waste. Its cosign-prune step is
   likewise not waste: the full paginated version listing is what tells a live signature

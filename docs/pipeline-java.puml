@@ -1,6 +1,6 @@
 @startuml pipeline-java
 ' Hand-maintained. Source of truth = .github/workflows/master-java-pipeline.yml + java-verify.yml + java-release.yml
-title Java pipeline — template pattern, three levels of workflow_call, one of two entry points
+title Java pipeline — template pattern, three levels of workflow_call, the only entry point
 
 skinparam componentStyle rectangle
 skinparam linetype ortho
@@ -86,9 +86,8 @@ note bottom of GATE
 end note
 
 note bottom of S2
-  **tag.yml and deploy-gitops.yml are shared
-  with master-python-pipeline.yml** — they are
-  language-agnostic, so neither has a java- prefix
+  **tag.yml and deploy-gitops.yml are
+  language-agnostic** — neither has a java- prefix
   and neither may be forked per language.
 
   Event gating (java-release.yml):

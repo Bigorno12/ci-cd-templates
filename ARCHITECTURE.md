@@ -35,20 +35,12 @@ an orchestrator.
 
 The nesting shown there is not documentation — it is the `uses:` graph. GitHub forbids
 subdirectories under `.github/workflows`, so the files are flat and this diagram is the only
-place the hierarchy is visible at a glance. Every Java workflow carries a `java-` prefix and
-every Python one a `python-`; the two unprefixed leaves (`tag.yml`, `deploy-gitops.yml`) are
-unprefixed *because* they are shared.
+place the hierarchy is visible at a glance. Every Java workflow carries a `java-` prefix; the
+two unprefixed leaves (`tag.yml`, `deploy-gitops.yml`) are unprefixed *because* they are
+language-agnostic.
 
-#### Pipeline — Python
-![Python pipeline](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/pipeline-python.puml)
-
-`master-python-pipeline.yml` is the same three-level tree with the Java leaves swapped for
-pip/pytest/ruff/pack equivalents. `tag.yml` and `deploy-gitops.yml` are **shared, not
-duplicated** — they are language-agnostic, so both entry points call the same two files.
-
-The three diagrams below are drawn from the Java tree but now carry the Python deltas
-inline: `inputs.puml` lists the input renames, `egress.puml` has a Python phase package, and
-`sequence-release.puml` notes that `python-docker.yml` runs the identical release sequence.
+The Python pipeline (`master-python-pipeline.yml` and its `python-*` leaves) has been
+removed, along with its diagram. Only the unwired `python-setup` composite action remains.
 
 #### Input, secret and permission plumbing
 ![Inputs](https://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/Bigorno12/ci-cd-templates/main/docs/inputs.puml)
@@ -70,8 +62,7 @@ Enforced for real by `step-security/harden-runner` as the first step of every jo
 ### Deployment topology
 
 This repo ships nothing runnable — it ships *workflow references*. A consumer pins
-`uses: Bigorno12/ci-cd-templates/.github/workflows/master-java-pipeline.yml@<sha>` (or
-`master-python-pipeline.yml`), so a
+`uses: Bigorno12/ci-cd-templates/.github/workflows/master-java-pipeline.yml@<sha>`, so a
 merge here reaches them only on their next pin bump; `auto-release.yml` patch-bumps a tag and
 release on every green merge to `main` (keeping the 10 newest), but pins are what consumers
 actually track.
@@ -80,9 +71,9 @@ Internally, workflows reference each other by local path (`./.github/workflows/j
 effective on the same commit) while the four composite actions under
 [`.github/actions/`](.github/actions/) are referenced by **SHA-pinned self-reference**
 (`Bigorno12/ci-cd-templates/.github/actions/java-setup@<sha>`, 7 call sites;
-`python-setup@<sha>`, 5; `ghcr-cleanup@<sha>`, 2 — `cache-cleanup` is not wired into the
-master pipeline and has none) — so editing an action does nothing until a second commit
-bumps every pin.
+`ghcr-cleanup@<sha>`, 1 — `python-setup` and `cache-cleanup` are not wired into the master
+pipeline and have none) — so editing an action does nothing until a second commit bumps
+every pin.
 
 On the consumer side the pipeline publishes `ghcr.io/<owner>/<repo>:main-<sha7>`, signs it
 keylessly, then commits that tag into their k8s manifest for Argo CD to sync. Retention on
@@ -106,13 +97,14 @@ rather than cosmetic:
   is inert in between;
 - a **brand-new** action is worse than inert, because its first pins necessarily name a
   commit that predates it and every job using them fails with "action not found";
-- Dependabot cannot advance a self-reference, so those 14 pins move by hand, which is the
-  one place this repo tolerates a manual SHA bump.
+- Dependabot does advance the self-references (#104/#105 bumped all 8), but only to a
+  release tag cut *after* the action change merged — so the deliberate second commit is
+  still the only way to make an edit live promptly.
 
-Moving the four actions to a sibling repo (`Bigorno12/ci-cd-actions`) dissolves all three:
-the pins become ordinary third-party pins that Dependabot advances in its existing grouped
-weekly PR, and an action can never be referenced by a commit that predates it because the
-two repos version independently.
+Moving the four actions to a sibling repo (`Bigorno12/ci-cd-actions`) dissolves the first
+two: an action can never be referenced by a commit that predates it because the two repos
+version independently, and Dependabot's existing grouped weekly PR picks up each action
+release on its own.
 
 Cutover order, which matters — every step keeps `main` green:
 
@@ -120,7 +112,7 @@ Cutover order, which matters — every step keeps `main` green:
    the `java-setup` / `python-setup` / `ghcr-cleanup` / `cache-cleanup` directory names so
    only the owner/repo half of each `uses:` changes.
 2. Tag a first release there and record its SHA.
-3. In **one** PR here, repoint all 14 call sites to
+3. In **one** PR here, repoint all 8 call sites to
    `Bigorno12/ci-cd-actions/<name>@<sha>`. This is the only risky step: the pins must be
    verified against the new repo with `git cat-file -e <sha>:<name>/action.yml` in a clone
    of it, since `post-workflow-edit.sh` resolves pins against *this* repo and will report
